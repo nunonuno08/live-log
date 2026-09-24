@@ -85,6 +85,9 @@ export function render(view, params) {
 
 const empty = '<div class="empty">この期間の記録はありません</div>';
 const kpi = (label, value, unit) => `<div class="kpi"><b>${value}<small>${unit}</small></b><span>${label}</span></div>`;
+// Yen in 万 so large totals still fit a third of the screen.
+const spendKpi = total =>
+  total >= 10000 ? kpi('支出', (total / 10000).toFixed(total >= 1000000 ? 0 : 1), '万円') : kpi('支出', Math.round(total).toLocaleString('ja-JP'), '円');
 
 function spendOf(lives) {
   const byCat = new Map();
@@ -309,7 +312,7 @@ function yearsTab() {
     </section>
     <h3 class="sec">${selYear}年のまとめ</h3>
     <div class="kpis">
-      ${kpi('参戦', yPast.length, '本')}${kpi('予定', yUpcoming.length, '本')}${kpi('支出', yen(spend.total), '')}
+      ${kpi('参戦', yPast.length, '本')}${kpi('予定', yUpcoming.length, '本')}${spendKpi(spend.total)}
     </div>
     <div class="hl-grid">
       ${topArtist ? `<a class="hl tint" href="#/artist/${topArtist[0]}"><div><small>いちばん行った</small><b>${esc(artistName(topArtist[0]))}</b><span>${topArtist[1]}本</span></div></a>` : ''}

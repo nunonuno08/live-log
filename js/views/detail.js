@@ -8,6 +8,12 @@ import { openSheet } from '../ui.js';
 import { nav, replace } from '../nav.js';
 
 const kpi = (label, value) => `<div class="kpi"><b>${value}</b><span>${label}</span></div>`;
+// A full date doesn't fit a third of a phone screen: month.day large, the year under it.
+const kpiDate = (label, date) => {
+  if (!date) return kpi(label, '-');
+  const [y, m, d] = date.split('-');
+  return `<div class="kpi"><b>${+m}.${+d}</b><span>${label}・${y}年</span></div>`;
+};
 
 /* ---------- song ---------- */
 
@@ -34,8 +40,8 @@ export function renderSong(view, id) {
     </section>
     <div class="kpis">
       ${kpi('聴いた回数', `${lives.length}<small>回</small>`)}
-      ${kpi('初めて', lives.length ? fmtDate(lives[0].date, false) : '-')}
-      ${kpi('最後', lives.length ? fmtDate(lives.at(-1).date, false) : '-')}
+      ${kpiDate('初めて', lives[0]?.date)}
+      ${kpiDate('最後', lives.at(-1)?.date)}
     </div>
     ${rows.length ? '' : '<div class="empty">まだ参戦済みのライブで聴いていません</div>'}
     ${rows.map(({ l, pos, total }) => `<div class="song-live">${liveRow(l)}<span class="muted small">${pos}曲目 / 全${total}曲</span></div>`).join('')}`;

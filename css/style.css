@@ -1,4 +1,5 @@
-/* ライブ記録 — paper & ink, with a vermilion accent. Follows the phone's light/dark setting. */
+/* ライブ記録 — paper & ink, with a vermilion accent. Light/dark follows the phone unless
+   chosen in 設定 (html[data-theme="light" | "dark"]). */
 :root {
   color-scheme: light dark;
   --bg: #f5f2ec;
@@ -18,8 +19,9 @@
   --tab-h: 56px;
   --r: 16px;
 }
+:root[data-theme="light"] { color-scheme: light; }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #101012;
     --surface: #1b1b1e;
     --surface2: #26262a;
@@ -32,6 +34,21 @@
     --danger: #ff6b5e;
     --shadow: none;
   }
+}
+/* Same dark colours when chosen in the app, whatever the phone is set to. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101012;
+  --surface: #1b1b1e;
+  --surface2: #26262a;
+  --line: #2e2e33;
+  --text: #f1eee8;
+  --muted: #9b968d;
+  --accent: #ff6547;
+  --accent-weak: rgba(255, 101, 71, 0.14);
+  --gold: #f0b43c;
+  --danger: #ff6b5e;
+  --shadow: none;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

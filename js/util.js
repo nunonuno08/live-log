@@ -137,6 +137,33 @@ export function matchScore(q, key) {
   return s >= 0.5 ? s : 0;
 }
 
+/* ---------- light / dark ---------- */
+
+const THEME_KEY = 'livelog-theme';
+
+/** 'auto' (follow the phone), 'light' or 'dark'. */
+export function getTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY) || 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+export function setTheme(mode) {
+  try {
+    if (mode === 'auto') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, mode);
+  } catch {}
+  const root = document.documentElement;
+  if (mode === 'auto') delete root.dataset.theme;
+  else root.dataset.theme = mode;
+  document.querySelectorAll('meta[name=theme-color]').forEach(m => {
+    const own = m.media.includes('dark') ? '#101012' : '#f5f2ec';
+    m.content = mode === 'auto' ? own : mode === 'dark' ? '#101012' : '#f5f2ec';
+  });
+}
+
 /* ---------- misc ---------- */
 
 export const safeUrl = u => (/^https?:\/\//i.test(u || '') ? u : null);

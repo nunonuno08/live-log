@@ -1,11 +1,11 @@
 import { state, photoCount, allPhotos, replaceAll } from '../store.js';
-import { esc, toast, today, blobToDataUrl, shareOrDownload } from '../util.js';
+import { esc, toast, today, blobToDataUrl, shareOrDownload, getTheme, setTheme } from '../util.js';
 import { status, statusEvents, signIn, signUp, signOut, syncNow } from '../sync.js';
 import { spotifyAvailable, spotifyConnected, disconnectSpotify } from '../spotify.js';
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.7.2';
+export const VERSION = '0.8.0';
 
 function cloudHtml() {
   if (status.state === 'signedOut') {
@@ -28,6 +28,22 @@ function cloudHtml() {
     <div class="btn-row"><button type="button" data-act="sync">今すぐ同期</button><button type="button" class="txt" data-act="signout">ログアウト</button></div>
     <p class="hint">記録や編集をすると、数秒後に自動で同期されます。</p>
   </section>`;
+}
+
+const loggedIn = () => status.state !== 'signedOut';
+
+// What "delete" does depends on whether this phone is syncing with the cloud.
+function wipeHtml() {
+  return loggedIn()
+    ? `<h2>データの削除</h2>
+      <p class="hint"><b>ログイン中のため、この端末とクラウドの両方から削除されます。</b><br>
+      すべての記録と写真が消え、同じアカウントでログインしている他の端末からも消えます。元に戻せません。<br>
+      この端末からだけ消したいときは、先にログアウトしてから削除してください（クラウドのデータは残り、次にログインすると戻ります）。</p>
+      <button class="wide txt danger" data-act="wipe">すべてのデータを削除（クラウドも）</button>`
+    : `<h2>データの削除</h2>
+      <p class="hint">この端末に保存されている記録と写真を削除します。<br>
+      ログインしていないので、クラウドのデータには影響しません（以前クラウドに保存したデータは残り、次にログインすると戻ります）。</p>
+      <button class="wide txt danger" data-act="wipe">この端末のデータを削除</button>`;
 }
 
 export function render(view) {
@@ -71,9 +87,17 @@ export function render(view) {
     </section>
 
     <section class="card">
-      <h2>全データ削除</h2>
-      <button class="wide txt danger" data-act="wipe">すべてのデータを削除</button>
+      <h2>表示</h2>
+      <div class="seg">${[
+        ['auto', '端末に合わせる'],
+        ['light', 'ライト'],
+        ['dark', 'ダーク'],
+      ]
+        .map(([k, label]) => `<button type="button" data-theme-set="${k}" class="${getTheme() === k ? 'on' : ''}">${label}</button>`)
+        .join('')}</div>
     </section>
+
+    <section class="card" id="wipe">${wipeHtml()}</section>
 
     <p class="center muted small">ライブ記録 v${VERSION}</p>`;
 
@@ -84,6 +108,8 @@ export function render(view) {
     const el = view.querySelector('#cloud');
     // Don't wipe what the user is typing in the login form.
     if (el && !(status.state === 'signedOut' && el.querySelector('#login'))) el.outerHTML = cloudHtml();
+    const wipe = view.querySelector('#wipe');
+    if (wipe) wipe.innerHTML = wipeHtml();
   };
   statusEvents.addEventListener('change', redrawCloud);
 
@@ -119,11 +145,18 @@ export function render(view) {
     }
     if (act === 'export') await exportData();
     if (act === 'wipe') {
-      if (!confirm('すべての記録と写真を削除します。元に戻せません。よろしいですか？')) return;
-      if (!confirm('本当に削除しますか？（先にバックアップを保存することをおすすめします）')) return;
-      await replaceAll({});
-      toast('削除しました');
+      const cloud = loggedIn();
+      const what = cloud ? 'この端末とクラウドの両方から、すべての記録と写真' : 'この端末のすべての記録と写真';
+      if (!confirm(`${what}を削除します。元に戻せません。よろしいですか？`)) return;
+      if (!confirm(`本当に削除しますか？${cloud ? '\n（他の端末からも消えます）' : ''}\n（先にバックアップを保存することをおすすめします）`)) return;
+      await replaceAll({}, { toCloud: cloud });
+      toast(cloud ? '端末とクラウドから削除しました' : 'この端末から削除しました');
       nav.rerender();
+    }
+    const theme = e.target.closest('[data-theme-set]')?.dataset.themeSet;
+    if (theme) {
+      setTheme(theme);
+      view.querySelectorAll('[data-theme-set]').forEach(b => b.classList.toggle('on', b.dataset.themeSet === theme));
     }
   });
   view.addEventListener('change', async e => {
@@ -166,12 +199,13 @@ async function importData(file) {
     return toast('このアプリのバックアップファイルではありません');
   }
   const when = data.exportedAt ? new Date(data.exportedAt).toLocaleString('ja-JP') : '不明';
-  if (!confirm(`${when} のバックアップ（ライブ${data.lives.length}本）を復元します。\n今のデータはすべて置き換えられます。よろしいですか？`)) return;
+  const cloudNote = loggedIn() ? '\n（ログイン中のため、クラウドと他の端末のデータも置き換わります）' : '';
+  if (!confirm(`${when} のバックアップ（ライブ${data.lives.length}本）を復元します。\n今のデータはすべて置き換えられます。よろしいですか？${cloudNote}`)) return;
   toast('復元中…');
   try {
     const photos = await Promise.all((data.photos || []).map(async p => ({ id: p.id, blob: await (await fetch(p.data)).blob() })));
     // Backups from the first version have no songs/venues; loading converts them.
-    await replaceAll({ artists: data.artists, lives: data.lives, songs: data.songs || [], venues: data.venues || [], photos });
+    await replaceAll({ artists: data.artists, lives: data.lives, songs: data.songs || [], venues: data.venues || [], photos }, { toCloud: loggedIn() });
     toast('復元しました');
     nav.rerender();
   } catch (err) {

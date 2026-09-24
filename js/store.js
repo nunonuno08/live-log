@@ -414,21 +414,29 @@ export const putCatalog = (artistId, items, version = 1) => db.put('catalogs', {
 export const FORCE_PUSH_KEY = 'livelog-sync-force';
 
 /**
- * Restores a backup (or wipes everything with {}). With cloud sync, records that are not in
- * the new data are deleted from the cloud too, and everything in it is uploaded again.
+ * Restores a backup (or wipes everything with {}).
+ * toCloud: records not in the new data are deleted from the cloud too, and everything is
+ * uploaded again. Without it (logged out) only this phone changes: nothing is queued for the
+ * cloud, and the next login downloads the cloud's data afresh.
  */
-export async function replaceAll({ artists = [], lives = [], songs = [], venues = [], photos = [] }) {
-  const incoming = { artists, lives, songs, venues };
-  for (const kind of RECORD_STORES) {
-    const keep = new Set(incoming[kind].map(r => r.id));
-    const gone = [...state[kind].keys()].filter(id => !keep.has(id));
-    if (gone.length) tomb(kind, ...gone);
+export async function replaceAll({ artists = [], lives = [], songs = [], venues = [], photos = [] }, { toCloud = true } = {}) {
+  if (toCloud) {
+    const incoming = { artists, lives, songs, venues };
+    for (const kind of RECORD_STORES) {
+      const keep = new Set(incoming[kind].map(r => r.id));
+      const gone = [...state[kind].keys()].filter(id => !keep.has(id));
+      if (gone.length) tomb(kind, ...gone);
+    }
+    const keepPhotos = new Set(photos.map(p => p.id));
+    const gonePhotos = (await db.getAllKeys('photos')).filter(id => !keepPhotos.has(id));
+    if (gonePhotos.length) tomb('photos', ...gonePhotos);
   }
-  const keepPhotos = new Set(photos.map(p => p.id));
-  const gonePhotos = (await db.getAllKeys('photos')).filter(id => !keepPhotos.has(id));
-  if (gonePhotos.length) tomb('photos', ...gonePhotos);
   try {
-    localStorage.setItem(FORCE_PUSH_KEY, '1');
+    if (toCloud) localStorage.setItem(FORCE_PUSH_KEY, '1');
+    else {
+      writeTombs([]);
+      ['livelog-sync', 'livelog-uploaded-photos', FORCE_PUSH_KEY].forEach(k => localStorage.removeItem(k));
+    }
   } catch {}
   await db.clear(...RECORD_STORES, 'photos', 'catalogs');
   urls.forEach(u => URL.revokeObjectURL(u));
