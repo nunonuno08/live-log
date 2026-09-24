@@ -4,7 +4,7 @@ import { status, statusEvents, signIn, signUp, signOut, syncNow } from '../sync.
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 
 function cloudHtml() {
   if (status.state === 'signedOut') {

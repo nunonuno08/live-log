@@ -7,9 +7,14 @@ import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js'
 import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
 import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
 
-// One tap picks a time; these cover almost every show. Anything else via "その他".
-const RAIL_TIMES = [];
-for (let m = 14 * 60; m <= 21 * 60; m += 30) RAIL_TIMES.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+// Usual door times; your own most frequent ones are added. Anything else via "その他".
+const DOOR_TIMES = ['17:00', '17:30', '18:00', '18:30'];
+// The show usually starts 1 or 2 hours after doors open.
+const START_OFFSETS = [
+  [60, '1時間後'],
+  [120, '2時間後'],
+  [30, '30分後'],
+];
 import { goBack, replace } from '../nav.js';
 
 // The form is mirrored to localStorage while editing: iOS may reload the app when you
@@ -124,8 +129,8 @@ export function render(view, id, params) {
       <div class="field"><span>会場</span>
         <div class="ac"><input id="venue-input" placeholder="会場名を入力" autocomplete="off" enterkeyhint="done"><div class="sg" id="venue-sg"></div></div>
       </div>
-      <div class="field"><span>開場 <b class="tval" data-tval="openTime"></b></span><div class="time-rail" data-rail="openTime"></div></div>
-      <div class="field"><span>開演 <b class="tval" data-tval="startTime"></b></span><div class="time-rail" data-rail="startTime"></div></div>
+      <div class="field"><span>開場</span><div class="time-chips" data-times="openTime"></div></div>
+      <div class="field"><span>開演</span><div class="time-chips" data-times="startTime"></div></div>
     </section>
 
     <section class="card">
@@ -219,39 +224,38 @@ export function render(view, id, params) {
   titleInput.addEventListener('blur', () => setTimeout(() => titleSg.clear(), 150));
 
   /* ----- open / start times ----- */
-  function railHtml(key) {
+  const usualDoors = (() => {
+    const freq = new Map();
+    for (const l of state.lives.values()) if (l.openTime) freq.set(l.openTime, (freq.get(l.openTime) || 0) + 1);
+    const mine = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([t]) => t);
+    return [...new Set([...DOOR_TIMES, ...mine])].sort();
+  })();
+
+  const chip = (key, t, label = '') =>
+    `<button type="button" class="tchip ${draft[key] === t ? 'on' : ''}" data-set="${key}" data-v="${t}">${label ? `<small>${label}</small>` : ''}${t}</button>`;
+
+  function timesHtml(key) {
     const v = draft[key];
-    const quick =
-      key === 'startTime' && draft.openTime
-        ? [30, 60].map(min => ({ t: addMinutes(draft.openTime, min), label: min === 60 ? '開場+1時間' : '開場+30分' }))
-        : [];
-    const times = [...new Set([...RAIL_TIMES, ...(v ? [v] : [])])].sort();
-    return (
-      quick.map(q => `<button type="button" class="tchip quick ${v === q.t ? 'on' : ''}" data-set="${key}" data-v="${q.t}"><small>${q.label}</small>${q.t}</button>`).join('') +
-      times.map(t => `<button type="button" class="tchip ${v === t ? 'on' : ''}" data-set="${key}" data-v="${t}">${t}</button>`).join('') +
-      `<label class="tchip other">その他<input type="time" data-other="${key}" value="${esc(v)}" aria-label="時刻を指定"></label>`
-    );
+    let chips;
+    if (key === 'openTime') chips = [...new Set([...usualDoors, ...(v ? [v] : [])])].sort().map(t => chip(key, t));
+    else if (draft.openTime) {
+      const offered = START_OFFSETS.map(([min]) => addMinutes(draft.openTime, min));
+      chips = START_OFFSETS.map(([min, label]) => chip(key, addMinutes(draft.openTime, min), label));
+      if (v && !offered.includes(v)) chips.push(chip(key, v));
+    } else chips = [...new Set(['18:00', '18:30', '19:00', '19:30', ...(v ? [v] : [])])].sort().map(t => chip(key, t));
+    const other = `<label class="tchip other">その他<input type="time" data-other="${key}" value="${esc(v)}" aria-label="時刻を指定"></label>`;
+    return chips.join('') + other;
   }
 
-  function drawTimes(initial = false) {
-    for (const key of ['openTime', 'startTime']) {
-      const rail = view.querySelector(`[data-rail="${key}"]`);
-      const keep = rail.scrollLeft;
-      rail.innerHTML = railHtml(key);
-      view.querySelector(`[data-tval="${key}"]`).innerHTML = draft[key] ? `${draft[key]} <button type="button" class="txt small" data-set="${key}" data-v="">クリア</button>` : '';
-      if (initial) {
-        // Start scrolled to the chosen time, or to the usual evening slot.
-        const target = rail.querySelector('.tchip.on:not(.quick)') || rail.querySelector(`[data-v="${key === 'openTime' ? '17:00' : '18:00'}"]`);
-        rail.scrollLeft = target ? target.offsetLeft - rail.offsetLeft - 8 : 0;
-      } else rail.scrollLeft = keep;
-    }
-    // "開場+30分 / +1時間" sit at the start of the rail: show them once the open time is known.
-    if (draft.openTime && !draft.startTime) view.querySelector('[data-rail="startTime"]').scrollLeft = 0;
+  function drawTimes() {
+    for (const key of ['openTime', 'startTime']) view.querySelector(`[data-times="${key}"]`).innerHTML = timesHtml(key);
   }
 
-  // Tapping the selected time again clears it.
+  // Tapping the selected time again clears it. Picking doors first fills in "1 hour later"
+  // as the start, which is the most common; one more tap changes it.
   function setTime(key, v) {
     draft[key] = draft[key] === v ? '' : v;
+    if (key === 'openTime' && draft.openTime && !draft.startTime) draft.startTime = addMinutes(draft.openTime, 60);
     drawTimes();
     persist();
   }
@@ -671,7 +675,7 @@ export function render(view, id, params) {
 
   drawArtists();
   drawType();
-  drawTimes(true);
+  drawTimes();
   drawSetlist();
   drawExpenses();
   drawPhoto();

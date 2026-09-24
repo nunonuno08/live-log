@@ -43,20 +43,20 @@ export function render(view, id) {
       <button class="icon-btn" data-act="share" aria-label="共有">⤴</button>
       <a class="icon-btn" href="#/edit/${id}" aria-label="編集">✎</a>
     </header>
-    <div class="live-hero ${heroPhoto ? '' : 'plain'}" ${l.photoIds?.[0] ? `data-view="${l.photoIds[0]}"` : ''}>
-      ${heroPhoto ? `<img data-photo="${heroPhoto}" alt="">` : ''}
-      <div class="live-hero-text">
-        <div class="date">${fmtDate(l.date)}${!past ? ' · 予定' : ''}</div>
+    <div class="lv-hero ${heroPhoto ? '' : 'plain'}">
+      ${heroPhoto ? `<img class="lv-img" data-photo="${heroPhoto}" ${l.photoIds?.[0] ? `data-view="${l.photoIds[0]}"` : ''} alt="">` : ''}
+      <div class="lv-fade"></div>
+      <div class="lv-head">
         <h1>${esc(liveTitle(l))}</h1>
+        <div class="lv-date">${fmtDate(l.date)}${!past ? '<span class="badge">予定</span>' : ''}</div>
+        ${venue ? `<a class="lv-line" href="#/venue/${l.venueId}"><span>📍</span>${esc(venue)}</a>` : ''}
+        ${l.type ? `<div class="lv-line"><span>🎫</span>${esc(l.type)}</div>` : ''}
+        ${time ? `<div class="lv-line times">${l.openTime ? `<span><small>OPEN</small>${l.openTime}</span>` : ''}${l.startTime ? `<span><small>START</small>${l.startTime}</span>` : ''}</div>` : ''}
+        <div class="chips">
+          ${l.artistIds.map(aid => `<a class="chip artist-chip" href="#/artist/${aid}">${avatar(state.artists.get(aid), 'xs')}${esc(artistName(aid))}</a>`).join('')}
+        </div>
       </div>
     </div>
-    <section class="live-meta">
-      ${venue ? `<a class="meta-line" href="#/venue/${l.venueId}">📍 ${esc(venue)}</a>` : ''}
-      ${time || l.type ? `<div class="meta-line">${[l.type, time].filter(Boolean).map(esc).join(' · ')}</div>` : ''}
-      <div class="chips">
-        ${l.artistIds.map(aid => `<a class="chip artist-chip" href="#/artist/${aid}">${avatar(state.artists.get(aid), 'xs')}${esc(artistName(aid))}</a>`).join('')}
-      </div>
-    </section>
 
     <section class="card">
       <h2>セットリスト <span class="muted small">${n ? `${n}曲` : ''}${firstTimers ? ` · 初めて聴いた曲 ${firstTimers}` : ''}</span></h2>

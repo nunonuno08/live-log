@@ -1,7 +1,7 @@
 // Bottom sheets and input helpers shared by the screens.
 import { esc, debounce, matchKey, matchScore, toast } from './util.js';
 import { state, ensureArtist, findArtist, allLives, hydratePhotos } from './store.js';
-import { searchArtists, autoArtistPhoto, catalogFor } from './music.js';
+import { searchArtists, artistPictures, autoArtistPhoto, catalogFor } from './music.js';
 import { avatar } from './components.js';
 
 /* ---------- bottom sheet ---------- */
@@ -98,10 +98,12 @@ export function pickArtist({ title = 'アーティストを選ぶ', exclude = []
       const input = sheet.querySelector('input');
       const list = sheet.querySelector('.pick-list');
       let remote = [];
+      let pictures = new Map();
       let seq = 0;
 
-      const row = (a, sub, attrs) =>
-        `<button type="button" class="pick-row" ${attrs}>${avatar(a, 'sm')}<span class="pick-name">${esc(a.name)}<small>${esc(sub)}</small></span></button>`;
+      const pic = url => `<div class="avatar sm"><img src="${esc(url)}" crossorigin="anonymous" alt=""></div>`;
+      const row = (a, sub, attrs, picture) =>
+        `<button type="button" class="pick-row" ${attrs}>${picture ? pic(picture) : avatar(a, 'sm')}<span class="pick-name">${esc(a.name)}<small>${esc(sub)}</small></span></button>`;
 
       const draw = () => {
         const q = matchKey(input.value);
@@ -115,7 +117,7 @@ export function pickArtist({ title = 'アーティストを選ぶ', exclude = []
           html += `<h3 class="sec">登録済み</h3>` + local.map(a => row(a, stats.get(a.id) ? `${stats.get(a.id).count}回` : '', `data-id="${a.id}"`)).join('');
         }
         if (fresh.length) {
-          html += `<h3 class="sec">新しく登録</h3>` + fresh.map((r, i) => row({ name: r.name }, r.genre, `data-remote="${i}"`)).join('');
+          html += `<h3 class="sec">新しく登録</h3>` + fresh.map((r, i) => row({ name: r.name }, r.genre, `data-remote="${i}"`, pictures.get(r.itunesId)?.thumb)).join('');
         }
         if (input.value.trim() && !findArtist(input.value.trim()) && !fresh.some(r => matchKey(r.name) === q)) {
           html += `<button type="button" class="pick-row plain" data-manual>＋「${esc(input.value.trim())}」を手入力で登録</button>`;
@@ -139,7 +141,13 @@ export function pickArtist({ title = 'アーティストを選ぶ', exclude = []
         } catch {
           if (my === seq) remote = [];
         }
-        if (my === seq) draw();
+        if (my !== seq) return;
+        draw();
+        // Names first, pictures as soon as they arrive.
+        const got = await artistPictures(remote).catch(() => new Map());
+        if (my !== seq) return;
+        pictures = new Map([...pictures, ...got]);
+        draw();
       }, 300);
 
       input.addEventListener('input', () => {
@@ -151,15 +159,17 @@ export function pickArtist({ title = 'アーティストを選ぶ', exclude = []
         const b = e.target.closest('button');
         if (!b) return;
         let id;
+        let chosenPicture;
         if (b.dataset.id) id = b.dataset.id;
         else if (b.dataset.remote) {
           const r = list._fresh[Number(b.dataset.remote)];
           id = await ensureArtist(r.name, { itunesId: r.itunesId });
+          chosenPicture = pictures.get(r.itunesId)?.big;
         } else if (b.dataset.manual != null) id = await ensureArtist(input.value.trim());
         if (!id) return;
         if (!b.dataset.id) {
-          // Photo and song list arrive in the background.
-          autoArtistPhoto(id).catch(() => {});
+          // Photo (the one shown in the list) and song list arrive in the background.
+          autoArtistPhoto(id, chosenPicture).catch(() => {});
           catalogFor(id).catch(() => {});
           toast(`「${state.artists.get(id).name}」を登録しました`);
         }

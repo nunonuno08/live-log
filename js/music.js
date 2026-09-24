@@ -127,7 +127,34 @@ export async function toursFor(artistId) {
 
 /* ---------- artist photos ---------- */
 
-function deezerSearch(name) {
+const pictureCache = new Map();
+
+/**
+ * Pictures for iTunes search results, to show while choosing: the Deezer artist photo when the
+ * name matches exactly, otherwise the newest jacket. Resolves to Map(itunesId -> { thumb, big }).
+ */
+export async function artistPictures(results) {
+  const todo = results.filter(r => !pictureCache.has(r.itunesId));
+  if (todo.length) {
+    const albums = getJson(`${ITUNES}/lookup?id=${todo.map(r => r.itunesId).join(',')}&entity=album&limit=1&country=JP`)
+      .then(j => new Map(j.results.filter(x => x.wrapperType === 'collection').map(x => [x.artistId, x.artworkUrl100])))
+      .catch(() => new Map());
+    const photos = await Promise.all(todo.map(r => deezerSearch(r.name, 3)));
+    const jackets = await albums;
+    todo.forEach((r, i) => {
+      const k = matchKey(r.name);
+      const hit = photos[i].find(a => matchKey(a.name) === k);
+      const jacket = jackets.get(r.itunesId);
+      pictureCache.set(
+        r.itunesId,
+        hit ? { thumb: hit.picture_medium, big: hit.picture_big || hit.picture_medium } : jacket ? { thumb: artworkAt(jacket, 200), big: artworkAt(jacket, 600) } : null,
+      );
+    });
+  }
+  return new Map(results.map(r => [r.itunesId, pictureCache.get(r.itunesId)]));
+}
+
+function deezerSearch(name, limit = 6) {
   return new Promise(resolve => {
     const cb = `__dz${Date.now()}${Math.floor(Math.random() * 1e6)}`;
     const script = document.createElement('script');
@@ -140,7 +167,7 @@ function deezerSearch(name) {
     const timer = setTimeout(() => done([]), 8000);
     window[cb] = j => done((j?.data || []).filter(a => a.picture_medium && !a.picture_medium.includes('/artist//')));
     script.onerror = () => done([]);
-    script.src = `https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}&limit=6&output=jsonp&callback=${cb}`;
+    script.src = `https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}&limit=${limit}&output=jsonp&callback=${cb}`;
     document.head.append(script);
   });
 }
@@ -165,12 +192,18 @@ export async function photoCandidates(artist) {
   return { photos, albums };
 }
 
-/** Picks an image automatically: an exactly matching artist photo, otherwise the newest jacket. */
-export async function autoArtistPhoto(artistId) {
+/**
+ * Sets the artist's image: `preferredUrl` (the picture shown in the search list) if given,
+ * otherwise an exactly matching artist photo, otherwise the newest jacket.
+ */
+export async function autoArtistPhoto(artistId, preferredUrl) {
   const artist = state.artists.get(artistId);
   if (!artist || artist.photoId || !navigator.onLine) return;
-  const { photos, albums } = await photoCandidates(artist);
-  const url = photos.find(p => p.score >= 0.8)?.url || albums[0];
+  let url = preferredUrl;
+  if (!url) {
+    const { photos, albums } = await photoCandidates(artist);
+    url = photos.find(p => p.score >= 0.8)?.url || albums[0];
+  }
   if (url) await setArtistPhotoFromUrl(artistId, url);
 }
 

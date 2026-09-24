@@ -1,5 +1,5 @@
 // Lives tab: every live as a ticket stub, upcoming first then by year.
-import { allLives, isPast, liveTitle, artistName, venueName, songIdsOf, songTitle } from '../store.js';
+import { allLives, isPast, liveTitle, artistName, venueName, songIdsOf, songTitle, hydratePhotos } from '../store.js';
 import { esc, matchKey } from '../util.js';
 import { liveRow } from '../components.js';
 import { pickArtist } from '../ui.js';
@@ -12,7 +12,10 @@ export function render(view) {
     <input type="search" id="q" placeholder="検索（ライブ名・会場・曲名など）" value="${esc(query)}">
     <div id="list"></div>`;
   const list = view.querySelector('#list');
-  const draw = () => (list.innerHTML = listHtml());
+  const draw = () => {
+    list.innerHTML = listHtml();
+    hydratePhotos(list);
+  };
   draw();
   view.addEventListener('input', e => {
     if (e.target.id !== 'q') return;

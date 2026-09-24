@@ -58,3 +58,9 @@ create policy "own photos update" on storage.objects for update
   using (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy "own photos delete" on storage.objects for delete
   using (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Keep-alive: a GitHub Actions job calls this every few days so the free project
+-- is never paused for inactivity. It only returns the current time.
+create or replace function public.ping() returns timestamptz
+language sql stable as $$ select now() $$;
+grant execute on function public.ping() to anon;

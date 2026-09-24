@@ -100,6 +100,7 @@ export function renderVenue(view, id) {
         : ''
     }
     ${lives.map(liveRow).join('')}`;
+  hydratePhotos(view);
 
   view.addEventListener('click', async e => {
     if (!e.target.closest('[data-act=menu]')) return;

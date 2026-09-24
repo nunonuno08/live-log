@@ -30,8 +30,9 @@ export function liveRow(l) {
     <div class="t-body">
       <div class="t-title">${esc(liveTitle(l))}</div>
       ${sub ? `<div class="t-sub">${esc(sub)}</div>` : ''}
+      ${side ? `<div class="t-badge">${side}</div>` : ''}
     </div>
-    ${side}
+    ${l.photoIds?.[0] ? `<img class="t-thumb" data-photo="${l.photoIds[0]}" alt="">` : ''}
   </a>`;
 }
 
