@@ -234,8 +234,48 @@ export function render(view, id, params) {
       input.closest('.time-field').classList.toggle('empty', !input.value);
     }
   };
-  // Doors set -> show two hours later, unless a different start was chosen already.
+  // An empty time picker would open at the current time. Start it at a likely time instead:
+  // the same tour's or venue's last show, else your most usual time, else a typical one.
+  function sameShow(key) {
+    const past = allLives().filter(l => l.id !== existing?.id && l[key]);
+    const tour = matchKey(draft.title);
+    const venue = venueKey(draft.venue.name || '');
+    return (
+      (tour && past.filter(l => matchKey(l.title || '') === tour).at(-1)) ||
+      (venue && past.filter(l => l.venueId && state.venues.get(l.venueId)?.key === venue).at(-1)) ||
+      null
+    );
+  }
+  function likelyTime(key) {
+    const past = allLives().filter(l => l.id !== existing?.id && l[key]);
+    const same = sameShow(key);
+    if (same) return same[key];
+    if (key === 'startTime' && draft.openTime) return addMinutes(draft.openTime, SHOW_OFFSET);
+    const freq = new Map();
+    for (const l of past) freq.set(l[key], (freq.get(l[key]) || 0) + 1);
+    const usual = [...freq].sort((a, b) => b[1] - a[1])[0]?.[0];
+    return usual || (key === 'openTime' ? '17:00' : '18:00');
+  }
   let lastOpen = draft.openTime;
+  const primeTime = input => {
+    if (input.value) return;
+    const key = input.dataset.f;
+    draft[key] = likelyTime(key);
+    // Doors filled in -> the start too: as at that same tour/venue, else two hours later.
+    if (key === 'openTime') {
+      const same = sameShow('openTime');
+      if (!draft.startTime) draft.startTime = (same?.openTime === draft.openTime && same.startTime) || addMinutes(draft.openTime, SHOW_OFFSET);
+      lastOpen = draft.openTime;
+    }
+    drawTimes();
+    persist();
+  };
+  for (const input of [openInput, startInput]) {
+    input.addEventListener('pointerdown', () => primeTime(input));
+    input.addEventListener('focus', () => primeTime(input));
+  }
+
+  // Doors changed -> show two hours later, unless a different start was chosen already.
   openInput.addEventListener('change', () => {
     const autoStart = lastOpen ? addMinutes(lastOpen, SHOW_OFFSET) : '';
     if (openInput.value && (!draft.startTime || draft.startTime === autoStart)) draft.startTime = addMinutes(openInput.value, SHOW_OFFSET);

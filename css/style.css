@@ -280,7 +280,11 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .sg-item { display: flex; align-items: center; gap: 10px; background: none; border-radius: 0; padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); }
 .sg-item:last-child { border-bottom: 0; }
 .sg-item:active { background: var(--surface2); }
-.sg-main { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Long tour names wrap (up to 3 lines) instead of being cut off. */
+.sg-main {
+  flex: 1; min-width: 0; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
 .sg-item small { color: var(--muted); font-size: 11px; flex: none; }
 
 .sl-list { list-style: none; margin: 0 0 10px; padding: 0; }

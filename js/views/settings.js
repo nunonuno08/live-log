@@ -5,7 +5,7 @@ import { spotifyAvailable, spotifyConnected, disconnectSpotify } from '../spotif
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.7.1';
+export const VERSION = '0.7.2';
 
 function cloudHtml() {
   if (status.state === 'signedOut') {
