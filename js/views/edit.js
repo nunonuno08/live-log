@@ -7,9 +7,7 @@ import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js'
 import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
 import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
 
-// Doors are almost always in the afternoon or evening, and the show usually starts
-// two hours later (sometimes one).
-const DOOR_WHEEL_START = '15:00';
+// The show usually starts two hours after doors open.
 const SHOW_OFFSET = 120;
 import { goBack, replace } from '../nav.js';
 
@@ -236,18 +234,6 @@ export function render(view, id, params) {
       input.closest('.time-field').classList.toggle('empty', !input.value);
     }
   };
-  // An empty picker would open at the current time; start it where shows usually are instead.
-  const primeTime = input => {
-    if (input.value) return;
-    input.value = input === openInput ? DOOR_WHEEL_START : draft.openTime ? addMinutes(draft.openTime, SHOW_OFFSET) : '18:00';
-    draft[input.dataset.f] = input.value;
-    drawTimes();
-    persist();
-  };
-  for (const input of [openInput, startInput]) {
-    input.addEventListener('pointerdown', () => primeTime(input));
-    input.addEventListener('focus', () => primeTime(input));
-  }
   // Doors set -> show two hours later, unless a different start was chosen already.
   let lastOpen = draft.openTime;
   openInput.addEventListener('change', () => {

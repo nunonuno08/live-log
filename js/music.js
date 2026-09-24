@@ -9,6 +9,7 @@ const ITUNES = 'https://itunes.apple.com';
 const CATALOG_MAX_AGE = 30 * 86400000;
 // Bump when song-title cleaning changes so cached song lists are rebuilt.
 const CATALOG_VERSION = 3;
+const TOURS_VERSION = 5;
 
 async function getJson(url, signal) {
   const res = await fetch(url, { signal });
@@ -83,28 +84,162 @@ async function artistWikiText(name) {
 
 const cleanWiki = s =>
   s
+    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<ref[^>]*\/>|<ref[^>]*>[\s\S]*?<\/ref>|<[^>]+>/g, '')
+    .replace(/\{\{[^{}]*\}\}/g, '')
     .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1')
     .replace(/'{2,}/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-/** Tour / live titles mentioned in the artist's article: [{ title, year }]. */
+const LIVE_SECTION = /ライブ|ツアー|コンサート|公演/;
+const NOT_LIVE_SECTION = /フェス|イベント|出演|映像|作品|ディスコ|タイアップ|受賞|アルバム|シングル/;
+const yearIn = s => s.match(/(?:19|20)\d{2}/)?.[0] || '';
+
+/** Text of the article's live sections ("ライブ", "ワンマンライブ・ライブツアー", …). */
+function liveSections(wikitext) {
+  const parts = [];
+  let inLive = false;
+  let liveLevel = 0;
+  for (const raw of wikitext.split('\n')) {
+    const heading = raw.match(/^(=+)\s*(.+?)\s*=+\s*$/);
+    if (heading) {
+      const level = heading[1].length;
+      if (inLive && level <= liveLevel) inLive = false;
+      if (!inLive && LIVE_SECTION.test(heading[2]) && !NOT_LIVE_SECTION.test(heading[2])) {
+        inLive = true;
+        liveLevel = level;
+      }
+      if (inLive) parts.push(raw); // sub-headings like "=== 2019年 ===" carry the year
+      continue;
+    }
+    if (inLive) parts.push(raw);
+  }
+  return parts.join('\n');
+}
+
+const CELL_ATTRS = /^\s*((?:(?:rowspan|colspan|align|style|class|width|bgcolor|scope|nowrap)\s*=\s*("[^"]*"|[^\s|]+)\s*)+)\|(.*)$/is;
+
+/** Wiki tables as rows of { header, text, rowspan, colspan } cells, plus the year of the heading above. */
+function wikiTables(text) {
+  const tables = [];
+  let table = null;
+  let row = null;
+  let last = null;
+  let headingYear = '';
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    const heading = line.match(/^=+\s*(.+?)\s*=+$/);
+    if (heading) {
+      headingYear = yearIn(heading[1]);
+      continue;
+    }
+    if (line.startsWith('{|')) {
+      tables.push((table = { rows: [], year: headingYear }));
+      row = last = null;
+    } else if (!table) continue;
+    else if (line.startsWith('|}')) table = null;
+    else if (line.startsWith('|-')) row = null;
+    else if (line.startsWith('|+')) continue;
+    else if (line.startsWith('!') || line.startsWith('|')) {
+      const header = line[0] === '!';
+      if (!row) table.rows.push((row = []));
+      for (const part of line.slice(1).split(header ? /!!|\|\|/ : /\|\|/)) {
+        const m = part.match(CELL_ATTRS);
+        const attrs = m ? m[1] : '';
+        last = {
+          header,
+          text: m ? m[3] : part,
+          rowspan: Number(attrs.match(/rowspan\s*=\s*"?(\d+)/i)?.[1] || 1),
+          colspan: Number(attrs.match(/colspan\s*=\s*"?(\d+)/i)?.[1] || 1),
+        };
+        row.push(last);
+      }
+    } else if (last) last.text += `\n${raw}`;
+  }
+  return tables;
+}
+
+/** Lays rows out on a grid, repeating cells that span several rows or columns. */
+function tableGrid(table) {
+  const carry = [];
+  return table.rows.map(cells => {
+    const out = [];
+    const queue = [...cells];
+    for (let col = 0; queue.length || carry.slice(col).some(c => c?.left > 0); col++) {
+      if (carry[col]?.left > 0) {
+        out[col] = carry[col].cell;
+        carry[col].left--;
+        continue;
+      }
+      const cell = queue.shift();
+      if (!cell) break;
+      for (let k = 0; k < cell.colspan; k++) {
+        out[col + k] = cell;
+        carry[col + k] = cell.rowspan > 1 ? { cell, left: cell.rowspan - 1 } : null;
+      }
+      col += cell.colspan - 1;
+    }
+    return out;
+  });
+}
+
+/**
+ * Tour / live titles in the artist's article: [{ title, year }].
+ * Artist articles list their shows in a table under a "ライブ" heading (年 | 公演名/タイトル |
+ * 日付 | 会場). The title and year columns are found from the table header, so the year shown
+ * is the one the article gives — never guessed from surrounding text. Cancelled shows are
+ * skipped. Articles without such a table fall back to bold or 「」-quoted names that look like
+ * tours, with a year only when the name itself contains one.
+ */
 export function extractTours(wikitext) {
   const byKey = new Map();
-  for (const rawLine of wikitext.split('\n')) {
-    const line = cleanWiki(rawLine);
-    const lineYear = line.match(/(19|20)\d{2}/)?.[0] || '';
-    // 「Title」, 『Title』 and bold '''Title''' entries in tour lists.
-    const found = [
-      ...[...line.matchAll(/[「『]([^」』]{4,90})[」』]/g)].map(m => m[1]),
-      ...[...rawLine.matchAll(/'''(?:\[\[(?:[^\]|]*\|)?)?([^'\]]{4,90})(?:\]\])?'''/g)].map(m => cleanWiki(m[1])),
-    ];
-    for (const found1 of found) {
-      const title = found1.trim();
-      if (!TOUR_WORD.test(title) || NOT_TOUR.test(title) || /https?:|\.jp|。/.test(title)) continue;
-      const key = matchKey(title);
-      if (!byKey.has(key)) byKey.set(key, { title, year: title.match(/(19|20)\d{2}/)?.[0] || lineYear });
+  const add = (title, year, strict) => {
+    title = cleanWiki(title.replace(/<br\s*\/?>[\s\S]*$/i, ''))
+      .trim()
+      .replace(/^[「『]([^「」『』]*)[」』]$/, '$1');
+    if (title.length < 3 || title.length > 120 || NOT_TOUR.test(title) || /https?:|\.jp|。/.test(title)) return;
+    if (strict && !TOUR_WORD.test(title)) return;
+    const key = matchKey(title);
+    if (key && !byKey.has(key)) byKey.set(key, { title, year: yearIn(title) || year || '' });
+  };
+  const live = liveSections(wikitext);
+
+  for (const table of wikiTables(live)) {
+    const grid = tableGrid(table);
+    const headerRows = grid.filter(r => r.length && r.every(c => c?.header));
+    const colName = i => headerRows.map(r => cleanWiki(r[i]?.text || '')).join(' ');
+    const width = Math.max(0, ...grid.map(r => r.length));
+    const cols = Array.from({ length: width }, (_, i) => colName(i));
+    const titleCol = cols.findIndex(n => /公演名|タイトル|ツアー|名称|ライブ名|公演/.test(n) && !/年|日|会場|地/.test(n));
+    if (titleCol < 0) continue;
+    const yearCol = cols.findIndex(n => /年/.test(n) && !/月|日/.test(n));
+    for (const r of grid) {
+      if (r.every(c => c?.header)) continue;
+      const cell = r[titleCol];
+      if (!cell || cell.header || /<s>|中止/.test(cell.text)) continue;
+      // Year: the year column, else a year in the cells left of the title (e.g. "開催期間"),
+      // else the heading above the table.
+      const rowYear =
+        (yearCol >= 0 && yearIn(r[yearCol]?.text || '')) ||
+        r.slice(0, titleCol).map(c => yearIn(cleanWiki(c?.text || ''))).find(Boolean) ||
+        table.year;
+      add(cell.text, rowYear, false);
+    }
+  }
+
+  if (!byKey.size) {
+    let year = '';
+    for (const raw of live.split('\n')) {
+      const heading = raw.match(/^=+\s*(.+?)\s*=+\s*$/);
+      if (heading && yearIn(heading[1])) year = yearIn(heading[1]);
+      const line = raw.replace(/<s>[\s\S]*?<\/s>/g, '');
+      for (const m of line.matchAll(/'''(?:\[\[(?:[^\]|]*\|)?)?([^'\]]{4,90})(?:\]\])?'''/g)) add(m[1], year, true);
+    }
+  }
+  if (!byKey.size) {
+    for (const raw of wikitext.split('\n')) {
+      for (const m of cleanWiki(raw).matchAll(/[「『]([^」』]{4,90})[」』]/g)) add(m[1], '', true);
     }
   }
   return [...byKey.values()];
@@ -116,11 +251,11 @@ export async function toursFor(artistId) {
   if (!artist) return [];
   const cacheId = `tours:${artistId}`;
   const cached = await getCatalog(cacheId).catch(() => null);
-  if (cached && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
+  if (cached && cached.version === TOURS_VERSION && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
   if (!navigator.onLine) return cached?.items || [];
   try {
     const items = extractTours(await artistWikiText(artist.name));
-    await putCatalog(cacheId, items);
+    await putCatalog(cacheId, items, TOURS_VERSION);
     return items;
   } catch {
     return cached?.items || [];

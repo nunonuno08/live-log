@@ -130,7 +130,7 @@ export async function createPlaylist(live, onProgress) {
     method: 'POST',
     body: JSON.stringify({
       name: `${fmtDate(live.date, false)} ${liveTitle(live)}`,
-      description: `${venue ? `${venue} の` : ''}セットリスト（ライブ記録アプリで作成）`,
+      description: `${venue ? `${venue} の` : ''}セットリスト`,
       public: false,
     }),
   });
