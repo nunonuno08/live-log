@@ -5,7 +5,7 @@ import { state, liveTitle, artistName, venueName } from './store.js';
 import { fmtDate, baseTitle, stripRomaji, matchKey } from './util.js';
 
 // Client ID of the app registered at developer.spotify.com (public; not a secret).
-const CLIENT_ID = '';
+const CLIENT_ID = 'b153e8300f014ee7a45e22cf3c67d8ae';
 const REDIRECT_URI = new URL('./', location.href).href;
 const SCOPES = 'playlist-modify-private playlist-modify-public';
 const TOKEN_KEY = 'livelog-spotify';
