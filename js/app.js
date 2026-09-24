@@ -1,6 +1,7 @@
 import { load, cleanupOrphanPhotos } from './store.js';
 import { nav } from './nav.js';
 import { closeAllSheets } from './ui.js';
+import { initSync, statusEvents } from './sync.js';
 import * as home from './views/home.js';
 import * as lives from './views/lives.js';
 import * as artist from './views/artist.js';
@@ -72,7 +73,7 @@ function route() {
       tab = 'stats';
       break;
     case 'settings':
-      settings.render(view);
+      cleanup = settings.render(view) || null;
       tab = 'settings';
       break;
     default:
@@ -121,6 +122,13 @@ document.addEventListener('click', e => {
   }
   route();
   cleanupOrphanPhotos(edit.draftPhotoIds()).catch(() => {});
+  // Show data that arrived from other devices, but never pull the page out from under an
+  // open form or sheet.
+  statusEvents.addEventListener('received', () => {
+    const busy = /^#\/(new|edit)/.test(location.hash) || document.body.classList.contains('modal-open');
+    if (!busy) nav.rerender();
+  });
+  initSync();
   if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }

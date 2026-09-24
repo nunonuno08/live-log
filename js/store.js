@@ -8,8 +8,66 @@ import { uid, today, matchKey, songKey, baseTitle, venueKey } from './util.js';
 
 export const state = { artists: new Map(), lives: new Map(), songs: new Map(), venues: new Map() };
 
-const RECORD_STORES = ['artists', 'lives', 'songs', 'venues'];
-const stamp = r => ((r.updatedAt = Date.now()), r);
+export const RECORD_STORES = ['artists', 'lives', 'songs', 'venues'];
+
+/* ---------- change tracking (for cloud sync) ---------- */
+
+// Fires after every local change so sync can schedule itself.
+export const changes = new EventTarget();
+const changed = () => changes.dispatchEvent(new Event('change'));
+
+const stamp = r => {
+  r.updatedAt = Date.now();
+  changed();
+  return r;
+};
+
+// Deleted ids waiting to be sent to the cloud (so other devices delete them too).
+const TOMB_KEY = 'livelog-tombstones';
+export function readTombs() {
+  try {
+    return JSON.parse(localStorage.getItem(TOMB_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+export function writeTombs(list) {
+  try {
+    localStorage.setItem(TOMB_KEY, JSON.stringify(list.slice(-5000)));
+  } catch {}
+}
+// Call before removing the record from `state`: a deletion must always be newer than the
+// record's last change, even if this phone's clock is a little behind another device's.
+function tomb(kind, ...ids) {
+  const set = new Set(ids);
+  const now = Date.now();
+  const entries = ids.map(id => ({ kind, id, at: Math.max(now, (state[kind]?.get(id)?.updatedAt || 0) + 1) }));
+  writeTombs([...readTombs().filter(t => !(t.kind === kind && set.has(t.id))), ...entries]);
+  changed();
+}
+
+/** Stores a record received from the cloud as is (no new timestamp, no change event). */
+export async function applyRemote(kind, record) {
+  state[kind].set(record.id, record);
+  await db.put(kind, record);
+}
+
+export async function removeRemote(kind, id) {
+  state[kind].delete(id);
+  await db.del(kind, id);
+}
+
+export const putRemotePhoto = (id, blob) => db.put('photos', { id, blob });
+export const hasPhoto = async id => !!(await db.get('photos', id));
+export const getPhotoBlob = async id => (await db.get('photos', id))?.blob;
+
+/** Photo ids that records point at. */
+export function referencedPhotoIds() {
+  const ids = new Set();
+  state.artists.forEach(a => a.photoId && ids.add(a.photoId));
+  state.lives.forEach(l => (l.photoIds || []).forEach(id => ids.add(id)));
+  return ids;
+}
 
 export async function load() {
   const [artists, lives, songs, venues] = await Promise.all(RECORD_STORES.map(s => db.getAll(s)));
@@ -49,8 +107,12 @@ export async function deleteArtist(id) {
   const a = state.artists.get(id);
   if (a?.photoId) await deletePhoto(a.photoId);
   const songs = [...state.songs.values()].filter(s => s.artistId === id);
-  songs.forEach(s => state.songs.delete(s.id));
-  if (songs.length) await db.del('songs', ...songs.map(s => s.id));
+  if (songs.length) {
+    tomb('songs', ...songs.map(s => s.id));
+    songs.forEach(s => state.songs.delete(s.id));
+    await db.del('songs', ...songs.map(s => s.id));
+  }
+  tomb('artists', id);
   state.artists.delete(id);
   await db.del('artists', id);
   await db.del('catalogs', id, `tours:${id}`);
@@ -136,6 +198,7 @@ export async function mergeSong(fromId, toId) {
   const aliases = new Set([...(to.aliases || []), from.key, ...(from.aliases || [])]);
   aliases.delete(to.key);
   await saveSong({ ...to, aliases: [...aliases], artwork: to.artwork || from.artwork });
+  tomb('songs', fromId);
   state.songs.delete(fromId);
   await db.del('songs', fromId);
 }
@@ -186,6 +249,7 @@ export async function mergeVenue(fromId, toId) {
   const aliases = new Set([...(to.aliases || []), from.key, ...(from.aliases || [])]);
   aliases.delete(to.key);
   await saveVenue({ ...to, aliases: [...aliases], lat: to.lat || from.lat, lon: to.lon || from.lon, area: to.area || from.area });
+  tomb('venues', fromId);
   state.venues.delete(fromId);
   await db.del('venues', fromId);
 }
@@ -201,6 +265,7 @@ export async function deleteLive(id) {
   const l = state.lives.get(id);
   if (!l) return;
   for (const pid of l.photoIds || []) await deletePhoto(pid);
+  tomb('lives', id);
   state.lives.delete(id);
   await db.del('lives', id);
 }
@@ -274,6 +339,7 @@ export async function savePhoto(blob) {
 
 export async function deletePhoto(id) {
   await db.del('photos', id);
+  tomb('photos', id);
   const u = urls.get(id);
   if (u) URL.revokeObjectURL(u);
   urls.delete(id);
@@ -314,13 +380,32 @@ export const putCatalog = (artistId, items) => db.put('catalogs', { id: artistId
 
 /* ---------- backup ---------- */
 
+export const FORCE_PUSH_KEY = 'livelog-sync-force';
+
+/**
+ * Restores a backup (or wipes everything with {}). With cloud sync, records that are not in
+ * the new data are deleted from the cloud too, and everything in it is uploaded again.
+ */
 export async function replaceAll({ artists = [], lives = [], songs = [], venues = [], photos = [] }) {
+  const incoming = { artists, lives, songs, venues };
+  for (const kind of RECORD_STORES) {
+    const keep = new Set(incoming[kind].map(r => r.id));
+    const gone = [...state[kind].keys()].filter(id => !keep.has(id));
+    if (gone.length) tomb(kind, ...gone);
+  }
+  const keepPhotos = new Set(photos.map(p => p.id));
+  const gonePhotos = (await db.getAllKeys('photos')).filter(id => !keepPhotos.has(id));
+  if (gonePhotos.length) tomb('photos', ...gonePhotos);
+  try {
+    localStorage.setItem(FORCE_PUSH_KEY, '1');
+  } catch {}
   await db.clear(...RECORD_STORES, 'photos', 'catalogs');
   urls.forEach(u => URL.revokeObjectURL(u));
   urls.clear();
   const puts = { artists, lives, songs, venues, photos };
   for (const [store, list] of Object.entries(puts)) if (list.length) await db.put(store, ...list);
   await load();
+  changed();
 }
 
 /* ---------- migration from the first version ---------- */
