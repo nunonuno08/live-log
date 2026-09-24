@@ -8,7 +8,7 @@ import { matchKey, songKey, baseTitle, similarity, compressImage } from './util.
 const ITUNES = 'https://itunes.apple.com';
 const CATALOG_MAX_AGE = 30 * 86400000;
 // Bump when song-title cleaning changes so cached song lists are rebuilt.
-const CATALOG_VERSION = 2;
+const CATALOG_VERSION = 3;
 
 async function getJson(url, signal) {
   const res = await fetch(url, { signal });

@@ -1,9 +1,12 @@
 import { state, deleteLive, artistName, liveTitle, isPast, playCounts, venueName, hydratePhotos, photoUrl } from '../store.js';
-import { esc, fmtDate, yen, toast } from '../util.js';
-import { avatar, songArt, notFound } from '../components.js';
+import { esc, fmtDate, yen, toast, shareOrDownload } from '../util.js';
+import { avatar, songArt, notFound, SPOTIFY_ICON } from '../components.js';
+import { spotifySearchUrl, spotifyAvailable, spotifyConnected, connectSpotify, createPlaylist } from '../spotify.js';
+import { liveCard } from '../share.js';
+import { openSheet } from '../ui.js';
 import { goBack } from '../nav.js';
 
-export function render(view, id) {
+export function render(view, id, params = new URLSearchParams()) {
   const l = state.lives.get(id);
   if (!l) {
     view.innerHTML = notFound('ライブ');
@@ -28,7 +31,8 @@ export function render(view, id) {
       const badge = !past ? '' : c === 1 ? '<span class="badge new">初</span>' : `<span class="cnt">${c}回目</span>`;
       return `<li><span class="no">${n}</span>${songArt(song, 'sm')}
         <a class="t" href="#/song/${song.id}">${esc(song.title)}${multi ? `<small>${esc(artistName(song.artistId))}</small>` : ''}</a>
-        ${badge}</li>`;
+        ${badge}
+        <a class="sp-link" href="${esc(spotifySearchUrl(song.title, artistName(song.artistId)))}" target="_blank" rel="noopener" aria-label="Spotifyで開く">${SPOTIFY_ICON}</a></li>`;
     })
     .join('');
 
@@ -62,6 +66,7 @@ export function render(view, id) {
     <section class="card">
       <h2>セットリスト <span class="muted small">${n ? `${n}曲` : ''}${firstTimers ? ` · 初めて聴いた曲 ${firstTimers}` : ''}</span></h2>
       ${setlist ? `<ol class="setlist">${setlist}</ol>` : '<p class="muted small">未登録です。右上の ✎ から追加できます。</p>'}
+      ${n && spotifyAvailable() ? `<button class="wide spotify-btn" data-act="playlist">${SPOTIFY_ICON}Spotify でプレイリストを作る</button>` : ''}
     </section>
 
     ${
@@ -92,7 +97,8 @@ export function render(view, id) {
     const photo = e.target.closest('[data-view]');
     if (photo) return openViewer(photo.dataset.view);
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'share') share(l);
+    if (act === 'share') shareSheet(l);
+    else if (act === 'playlist') playlist(l);
     else if (act === 'delete') {
       if (!confirm('このライブの記録を削除しますか？（写真も削除されます）')) return;
       await deleteLive(l.id);
@@ -100,6 +106,62 @@ export function render(view, id) {
       goBack('#/lives');
     }
   });
+
+  // Back from Spotify's login page: carry on with the playlist.
+  if (params.get('spotify') === '1' && spotifyConnected()) {
+    history.replaceState(null, '', `#/live/${id}`); // no re-render, so the progress sheet stays
+    playlist(l);
+  }
+}
+
+async function playlist(l) {
+  if (!spotifyConnected()) {
+    if (!confirm('Spotify にログインして、このセトリのプレイリストを作ります。よろしいですか？')) return;
+    return connectSpotify(`#/live/${l.id}?spotify=1`);
+  }
+  let setStatus = () => {};
+  let closeProgress = () => {};
+  openSheet({
+    title: 'Spotify',
+    html: '<p class="center" id="sp-status">準備中…</p>',
+    onMount(sheet, close) {
+      setStatus = msg => (sheet.querySelector('#sp-status').textContent = msg);
+      closeProgress = close;
+    },
+  });
+  try {
+    const { url, missing } = await createPlaylist(l, msg => setStatus(msg));
+    closeProgress();
+    await openSheet({
+      title: 'プレイリストを作成しました',
+      html: `<p>Spotify の「ライブラリ」に非公開のプレイリストとして追加しました。</p>
+        ${missing.length ? `<p class="hint">見つからなかった曲: ${missing.map(esc).join('、')}</p>` : ''}
+        <a class="btn wide spotify-btn" href="${esc(url || 'https://open.spotify.com/')}" target="_blank" rel="noopener">${SPOTIFY_ICON}Spotify で開く</a>`,
+    });
+  } catch (err) {
+    closeProgress();
+    toast(err.message);
+  }
+}
+
+async function shareSheet(l) {
+  let url = '';
+  let blob = null;
+  await openSheet({
+    title: '共有',
+    tall: true,
+    html: `<div class="card-preview"><p class="muted small center">画像を作成中…</p></div>
+      <div class="btn-row"><button type="button" data-text>テキストで共有</button><button type="button" class="primary" data-image disabled>画像を保存・共有</button></div>`,
+    async onMount(sheet) {
+      blob = await liveCard(l);
+      url = URL.createObjectURL(blob);
+      sheet.querySelector('.card-preview').innerHTML = `<img src="${url}" alt="セトリ画像">`;
+      sheet.querySelector('[data-image]').disabled = false;
+      sheet.querySelector('[data-image]').addEventListener('click', () => shareOrDownload(blob, `setlist-${l.date}.png`));
+      sheet.querySelector('[data-text]').addEventListener('click', () => share(l));
+    },
+  });
+  if (url) URL.revokeObjectURL(url);
 }
 
 async function openViewer(photoId) {

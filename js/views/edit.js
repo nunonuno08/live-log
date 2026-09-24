@@ -1,11 +1,11 @@
 import {
   state, saveLive, saveSong, ensureSong, ensureVenue, artistName, venueName, savePhoto, deletePhoto, hydratePhotos, allLives, songCounts,
 } from '../store.js';
-import { esc, uid, today, toast, compressImage, matchKey, songKey, venueKey, matchScore, similarity, addMinutes } from '../util.js';
+import { esc, uid, today, toast, compressImage, matchKey, songKey, venueKey, matchScore, similarity, addMinutes, stripRomaji } from '../util.js';
 import { TYPES, EXPENSE_CATS, avatar, songArt, notFound } from '../components.js';
 import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js';
 import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
-import { openSheet, suggest, pickArtist, cropImage, wheelTime } from '../ui.js';
+import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
 
 // Doors are almost always in the afternoon or evening, and the show usually starts
 // two hours later (sometimes one).
@@ -132,8 +132,8 @@ export function render(view, id, params) {
         <div class="ac"><input id="venue-input" placeholder="会場名を入力" autocomplete="off" enterkeyhint="done"><div class="sg" id="venue-sg"></div></div>
       </div>
       <div class="row2">
-        <div class="field"><span>開場</span><button type="button" class="time-btn" data-time="openTime"></button></div>
-        <div class="field"><span>開演</span><button type="button" class="time-btn" data-time="startTime"></button></div>
+        <div class="field"><span>開場</span><div class="time-field"><input type="time" data-f="openTime"><button type="button" class="clear-x" data-clear-time="openTime" aria-label="開場をクリア">×</button></div></div>
+        <div class="field"><span>開演</span><div class="time-field"><input type="time" data-f="startTime"><button type="button" class="clear-x" data-clear-time="startTime" aria-label="開演をクリア">×</button></div></div>
       </div>
     </section>
 
@@ -227,40 +227,36 @@ export function render(view, id, params) {
   titleInput.addEventListener('focus', () => titleSg.refresh());
   titleInput.addEventListener('blur', () => setTimeout(() => titleSg.clear(), 150));
 
-  /* ----- open / start times ----- */
-  function drawTimes() {
-    view.querySelectorAll('[data-time]').forEach(b => {
-      const v = draft[b.dataset.time];
-      b.textContent = v || '未設定';
-      b.classList.toggle('empty', !v);
-    });
-  }
-
-  async function chooseTime(key) {
-    const open = draft.openTime;
-    const v =
-      key === 'openTime'
-        ? await wheelTime({ title: '開場時間', value: draft.openTime, initial: DOOR_WHEEL_START })
-        : await wheelTime({
-            title: '開演時間',
-            value: draft.startTime,
-            initial: open ? addMinutes(open, SHOW_OFFSET) : '17:00',
-            quick: open
-              ? [
-                  { label: '開場の2時間後', t: addMinutes(open, 120) },
-                  { label: '1時間後', t: addMinutes(open, 60) },
-                ]
-              : [],
-          });
-    if (v === null) return;
-    // Setting doors also sets the show two hours later (it can be changed in one tap).
-    if (key === 'openTime' && v && (!draft.startTime || draft.startTime === addMinutes(draft.openTime || '00:00', SHOW_OFFSET))) {
-      draft.startTime = addMinutes(v, SHOW_OFFSET);
+  /* ----- open / start times (the phone's own time picker, like the date) ----- */
+  const openInput = view.querySelector('[data-f=openTime]');
+  const startInput = view.querySelector('[data-f=startTime]');
+  const drawTimes = () => {
+    for (const input of [openInput, startInput]) {
+      input.value = draft[input.dataset.f] || '';
+      input.closest('.time-field').classList.toggle('empty', !input.value);
     }
-    draft[key] = v;
+  };
+  // An empty picker would open at the current time; start it where shows usually are instead.
+  const primeTime = input => {
+    if (input.value) return;
+    input.value = input === openInput ? DOOR_WHEEL_START : draft.openTime ? addMinutes(draft.openTime, SHOW_OFFSET) : '18:00';
+    draft[input.dataset.f] = input.value;
     drawTimes();
     persist();
+  };
+  for (const input of [openInput, startInput]) {
+    input.addEventListener('pointerdown', () => primeTime(input));
+    input.addEventListener('focus', () => primeTime(input));
   }
+  // Doors set -> show two hours later, unless a different start was chosen already.
+  let lastOpen = draft.openTime;
+  openInput.addEventListener('change', () => {
+    const autoStart = lastOpen ? addMinutes(lastOpen, SHOW_OFFSET) : '';
+    if (openInput.value && (!draft.startTime || draft.startTime === autoStart)) draft.startTime = addMinutes(openInput.value, SHOW_OFFSET);
+    lastOpen = openInput.value;
+    drawTimes();
+    persist();
+  });
 
   /* ----- venue ----- */
   const venueInput = $('#venue-input');
@@ -320,12 +316,17 @@ export function render(view, id, params) {
     const catalog = await catalogFor(aid).catch(() => []);
     for (const c of catalog) {
       const known = byKey.get(c.key) || [...byKey.values()].find(x => x.aliases.includes(c.key));
-      if (!known) byKey.set(c.key, { ...c, aliases: [], count: 0, artistId: aid });
-      else if (!known.artwork && c.artwork) {
-        // Songs typed before the catalog was available get their jacket now.
-        known.artwork = c.artwork;
-        saveSong({ ...state.songs.get(known.songId), artwork: c.artwork }).catch(() => {});
+      if (!known) {
+        byKey.set(c.key, { ...c, aliases: [], count: 0, artistId: aid });
+        continue;
       }
+      const song = state.songs.get(known.songId);
+      const patch = {};
+      // Songs typed before the catalog was available get their jacket now.
+      if (!known.artwork && c.artwork) patch.artwork = known.artwork = c.artwork;
+      // v0.6 shortened titles like "燦然 - Sanzen" to "燦然"; show them as iTunes lists them again.
+      if (song && song.title !== c.title && song.title === stripRomaji(c.title)) patch.title = known.title = c.title;
+      if (song && Object.keys(patch).length) saveSong({ ...song, ...patch }).catch(() => {});
     }
     const list = [...byKey.values()];
     candidates.set(aid, list);
@@ -691,8 +692,11 @@ export function render(view, id, params) {
     } else if (d.type) {
       draft.type = d.type;
       drawType();
-    } else if (d.time) return chooseTime(d.time);
-    else if (d.mv) {
+    } else if (d.clearTime) {
+      draft[d.clearTime] = '';
+      if (d.clearTime === 'openTime') lastOpen = '';
+      drawTimes();
+    } else if (d.mv) {
       const i = Number(d.i);
       const j = i + Number(d.mv);
       [draft.setlist[i], draft.setlist[j]] = [draft.setlist[j], draft.setlist[i]];

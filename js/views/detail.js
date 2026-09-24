@@ -1,7 +1,8 @@
 // Single song and single venue pages, including fixing duplicates (rename / merge).
 import { state, allLives, isPast, songIdsOf, artistName, renameSong, mergeSong, findSong, renameVenue, mergeVenue, findVenue, hydratePhotos } from '../store.js';
 import { esc, fmtDate, matchKey, matchScore, toast } from '../util.js';
-import { avatar, liveRow, songArt, notFound } from '../components.js';
+import { avatar, liveRow, songArt, notFound, SPOTIFY_ICON } from '../components.js';
+import { spotifySearchUrl } from '../spotify.js';
 import { artworkAt } from '../music.js';
 import { openSheet } from '../ui.js';
 import { nav, replace } from '../nav.js';
@@ -29,6 +30,7 @@ export function renderSong(view, id) {
       ${song.artwork ? `<img class="art xl" src="${esc(artworkAt(song.artwork, 300))}" crossorigin="anonymous" alt="">` : '<span class="art xl none">♪</span>'}
       <h1>${esc(song.title)}</h1>
       <a class="chip artist-chip" href="#/artist/${song.artistId}">${avatar(state.artists.get(song.artistId), 'xs')}${esc(artistName(song.artistId))}</a>
+      <a class="btn spotify-btn" href="${esc(spotifySearchUrl(song.title, artistName(song.artistId)))}" target="_blank" rel="noopener">${SPOTIFY_ICON}Spotify で開く</a>
     </section>
     <div class="kpis">
       ${kpi('聴いた回数', `${lives.length}<small>回</small>`)}

@@ -2,6 +2,8 @@ import { load, cleanupOrphanPhotos } from './store.js';
 import { nav } from './nav.js';
 import { closeAllSheets } from './ui.js';
 import { initSync, statusEvents } from './sync.js';
+import { finishSpotifyLogin } from './spotify.js';
+import { toast } from './util.js';
 import * as home from './views/home.js';
 import * as lives from './views/lives.js';
 import * as artist from './views/artist.js';
@@ -52,7 +54,7 @@ function route() {
       artist.render(view, id);
       break;
     case 'live':
-      live.render(view, id);
+      live.render(view, id, params);
       tab = 'lives';
       break;
     case 'new':
@@ -119,6 +121,13 @@ document.addEventListener('click', e => {
   } catch (err) {
     root.innerHTML = `<div class="empty">データを読み込めませんでした。<br>${String(err.message || err)}</div>`;
     return;
+  }
+  // Coming back from Spotify's login page (…/live-log/?code=…): finish it, then carry on.
+  try {
+    const next = await finishSpotifyLogin();
+    if (next) history.replaceState(null, '', next);
+  } catch (err) {
+    toast(err.message);
   }
   route();
   cleanupOrphanPhotos(edit.draftPhotoIds()).catch(() => {});

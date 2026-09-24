@@ -254,21 +254,12 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* ---------- editor ---------- */
-/* ---------- time picker ---------- */
-.time-btn { width: 100%; justify-content: flex-start; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; min-height: 52px; }
-.time-btn.empty { font-size: 15px; font-weight: 500; color: var(--muted); }
-.quick-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.quick-row .chip { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
-.wheel-wrap { position: relative; isolation: isolate; display: flex; justify-content: center; align-items: center; gap: 6px; height: 220px; margin: 6px 0 18px; }
-.wheel-band { position: absolute; z-index: -1; left: 50%; top: 50%; width: 230px; height: 44px; transform: translate(-50%, -50%); border-radius: 12px; background: var(--surface2); }
-.wheel {
-  height: 220px; width: 92px; overflow-y: scroll; scroll-snap-type: y mandatory; padding: 88px 0; scrollbar-width: none; overscroll-behavior: contain;
-  -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent);
-}
-.wheel::-webkit-scrollbar { display: none; }
-.wheel div { height: 44px; line-height: 44px; text-align: center; font-size: 24px; font-weight: 600; color: var(--muted); scroll-snap-align: center; font-variant-numeric: tabular-nums; cursor: pointer; }
-.wheel div.on { color: var(--text); font-size: 30px; font-weight: 800; }
-.wheel-colon { font-size: 30px; font-weight: 800; }
+/* ---------- time fields ---------- */
+.time-field { position: relative; }
+.time-field input { min-height: 46px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; padding-right: 36px; }
+.time-field.empty input { font-weight: 400; color: var(--muted); }
+.clear-x { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; padding: 0; border-radius: 50%; background: none; color: var(--muted); font-size: 18px; }
+.time-field.empty .clear-x { display: none; }
 
 .crop-stage { display: flex; justify-content: center; margin: 8px 0 14px; }
 .crop-wrap { position: relative; display: inline-block; touch-action: none; user-select: none; -webkit-user-select: none; line-height: 0; }
@@ -480,3 +471,12 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .rv-hints { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .rv-hints > span { font-size: 11px; font-weight: 700; color: var(--muted); }
 .rv-hints .chip { padding: 3px 10px 3px 3px; font-size: 13px; background: var(--surface); border: 1px solid var(--line); font-weight: 600; }
+
+/* Spotify & share */
+.sp-icon { width: 20px; height: 20px; flex: none; display: block; }
+.sp-link { flex: none; padding: 6px; margin: -6px -4px -6px 0; opacity: 0.9; }
+.spotify-btn { gap: 8px; font-weight: 800; background: #1ed760; color: #000; }
+.spotify-btn .sp-icon circle { fill: #000; }
+.spotify-btn .sp-icon path { stroke: #1ed760; }
+.card-preview { display: flex; justify-content: center; margin: 6px 0 4px; }
+.card-preview img { width: min(100%, 300px); aspect-ratio: 9 / 16; border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }

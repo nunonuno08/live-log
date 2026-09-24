@@ -182,54 +182,6 @@ export function pickArtist({ title = 'アーティストを選ぶ', exclude = []
   });
 }
 
-/* ---------- time wheel ---------- */
-
-const WHEEL_ROW = 44;
-const pad2 = n => String(n).padStart(2, '0');
-
-/**
- * Hour and minute wheels like the iPhone alarm. `initial` is where the wheels start when there
- * is no value yet; `quick` = [{ label, t }] one-tap answers. Resolves 'HH:MM', '' (cleared) or null.
- */
-export function wheelTime({ title, value = '', initial = '15:00', quick = [] }) {
-  const [h0, m0] = (value || initial).split(':').map(Number);
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-  const mins = Array.from({ length: 12 }, (_, i) => i * 5);
-  const col = (list, key) => `<div class="wheel" data-w="${key}">${list.map(v => `<div data-v="${v}">${pad2(v)}</div>`).join('')}</div>`;
-  return openSheet({
-    title,
-    html: `${quick.length ? `<div class="quick-row">${quick.map(q => `<button type="button" class="chip" data-quick="${q.t}">${esc(q.label)} <b>${q.t}</b></button>`).join('')}</div>` : ''}
-      <div class="wheel-wrap"><div class="wheel-band"></div>${col(hours, 'h')}<span class="wheel-colon">:</span>${col(mins, 'm')}</div>
-      <div class="btn-row"><button type="button" data-clear>未設定にする</button><button type="button" class="primary" data-ok>決定</button></div>`,
-    onMount(sheet, close) {
-      const hw = sheet.querySelector('[data-w=h]');
-      const mw = sheet.querySelector('[data-w=m]');
-      const index = w => Math.min(w.children.length - 1, Math.max(0, Math.round(w.scrollTop / WHEEL_ROW)));
-      const mark = w => [...w.children].forEach((el, i) => el.classList.toggle('on', i === index(w)));
-      for (const w of [hw, mw]) {
-        w.addEventListener('scroll', () => mark(w), { passive: true });
-        // Tapping a number scrolls it into the middle.
-        w.addEventListener('click', e => {
-          const i = [...w.children].indexOf(e.target.closest('[data-v]'));
-          if (i >= 0) w.scrollTo({ top: i * WHEEL_ROW, behavior: 'smooth' });
-        });
-      }
-      // The sheet is already on the page here, so the wheels can be positioned right away.
-      hw.scrollTop = h0 * WHEEL_ROW;
-      mw.scrollTop = Math.round(m0 / 5) * WHEEL_ROW;
-      mark(hw);
-      mark(mw);
-      sheet.addEventListener('click', e => {
-        const b = e.target.closest('button');
-        if (!b) return;
-        if (b.dataset.quick) close(b.dataset.quick);
-        else if (b.dataset.clear != null) close('');
-        else if (b.dataset.ok != null) close(`${pad2(hours[index(hw)])}:${pad2(mins[index(mw)])}`);
-      });
-    },
-  });
-}
-
 /* ---------- crop ---------- */
 
 const MAX_OCR_SIDE = 2400;

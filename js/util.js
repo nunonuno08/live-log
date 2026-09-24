@@ -59,24 +59,25 @@ const VERSION_RE =
   /ver\b|ver\.|version|バージョン|ヴァージョン|remaster|album|single|edit|mix|size|\btv\b|live|ライブ|acoustic|アコースティック|mono|stereo|bonus|short|full|original|オリジナル|inst|demo|session|take/i;
 const BRACKETED = /\s*[([（【〔［][^)\]）】〕］]*[)\]）】〕］]/g;
 
-const HAS_JAPANESE = /[぀-ヿ㐀-鿿]/;
-
-/**
- * Title without "(ALBUM ver.)", " - Single Version", "feat. X" and similar suffixes. Japanese
- * titles also lose a trailing romanization / edition tag in plain ASCII, e.g. "燦然 - Sanzen"
- * or "ひたむき (AA1)", which is how some of them appear on iTunes.
- */
+/** Title as displayed: without "(ALBUM ver.)", " - Single Version", "feat. X" and similar suffixes. */
 export function baseTitle(title) {
   let t = String(title ?? '').normalize('NFKC').trim();
   t = t.replace(/\s*[([]\s*(?:feat|ft|with)\.?\s[^)\]]*[)\]]/gi, '').replace(/\s+(?:feat|ft)\.?\s.*$/i, '');
   t = t.replace(BRACKETED, m => (VERSION_RE.test(m) ? '' : m));
   t = t.replace(/\s+[-–—~〜]\s+[^-–—~〜]*$/, m => (VERSION_RE.test(m) ? '' : m));
-  const cut = t.replace(/\s*(?:[-–—~〜]\s*[\x20-\x7e]+|[([][\x20-\x7e]*[)\]])\s*$/, '');
-  if (HAS_JAPANESE.test(cut) && cut !== t) t = cut;
   return t.trim() || String(title ?? '').trim();
 }
 
-export const songKey = title => matchKey(baseTitle(title)) || String(title ?? '').trim();
+const HAS_JAPANESE = /[぀-ヿ㐀-鿿]/;
+
+// For matching only (the displayed title keeps it): a Japanese title without a trailing
+// romanization / edition tag in plain ASCII, so "燦然" finds iTunes' "燦然 - Sanzen".
+export function stripRomaji(title) {
+  const cut = title.replace(/\s*(?:[-–—~〜]\s*[\x20-\x7e]+|[([][\x20-\x7e]*[)\]])\s*$/, '');
+  return HAS_JAPANESE.test(cut) ? cut : title;
+}
+
+export const songKey = title => matchKey(stripRomaji(baseTitle(title))) || String(title ?? '').trim();
 
 // Venues: "Zepp DiverCity (TOKYO)" and "Zepp DiverCity" are the same place.
 export const venueKey = name => matchKey(String(name ?? '').normalize('NFKC').replace(BRACKETED, '')) || matchKey(name);

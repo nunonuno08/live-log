@@ -1,7 +1,10 @@
 import { esc, hue, weekday, daysUntil, today } from './util.js';
 import { state, artistName, liveTitle, isPast, venueName } from './store.js';
 
-export const TYPES = ['ワンマン', '対バン', 'フェス', 'イベント', '配信'];
+export const SPOTIFY_ICON =
+  '<svg class="sp-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1ed760"/><path d="M6.2 9.3c3.9-1.2 8.3-.8 11.6 1.1M7 12.4c3.2-.9 6.7-.6 9.5 1M7.8 15.3c2.5-.7 5.1-.4 7.3.8" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+export const TYPES =['ワンマン', '対バン', 'フェス', 'イベント', '配信'];
 export const EXPENSE_CATS = ['チケット', 'グッズ', 'ドリンク', '交通費', '宿泊費', 'その他'];
 
 export function avatar(artist, cls = '') {

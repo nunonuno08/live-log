@@ -1,10 +1,11 @@
 import { state, photoCount, allPhotos, replaceAll } from '../store.js';
 import { esc, toast, today, blobToDataUrl, shareOrDownload } from '../util.js';
 import { status, statusEvents, signIn, signUp, signOut, syncNow } from '../sync.js';
+import { spotifyAvailable, spotifyConnected, disconnectSpotify } from '../spotify.js';
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.7.0';
 
 function cloudHtml() {
   if (status.state === 'signedOut') {
@@ -35,6 +36,16 @@ export function render(view) {
     <header class="top"><h1>設定</h1></header>
 
     ${cloudHtml()}
+
+    ${
+      spotifyAvailable()
+        ? `<section class="card">
+            <h2>Spotify</h2>
+            <p class="small muted">${spotifyConnected() ? '接続済み。ライブ詳細のセトリからプレイリストを作れます。' : '未接続。ライブ詳細の「Spotify でプレイリストを作る」から接続できます。'}</p>
+            ${spotifyConnected() ? '<button class="wide txt" data-act="spotify-off">Spotify との接続を解除</button>' : ''}
+          </section>`
+        : ''
+    }
 
     <section class="card">
       <h2>データ</h2>
@@ -100,6 +111,10 @@ export function render(view) {
     if (act === 'sync') syncNow();
     if (act === 'signout' && confirm('ログアウトしますか？\n（このiPhoneの記録はそのまま残ります）')) {
       await signOut();
+      nav.rerender();
+    }
+    if (act === 'spotify-off') {
+      disconnectSpotify();
       nav.rerender();
     }
     if (act === 'export') await exportData();
