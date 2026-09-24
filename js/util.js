@@ -22,7 +22,7 @@ export const weekday = date => WEEKDAYS[toDate(date).getDay()];
 
 export function fmtDate(date, withWeekday = true) {
   if (!date) return '';
-  const s = date.replaceAll('-', '/');
+  const s = date.replaceAll('-', '.');
   return withWeekday ? `${s} (${weekday(date)})` : s;
 }
 
@@ -32,16 +32,103 @@ export function daysUntil(date) {
   return Math.round((toDate(date) - base) / 86400000);
 }
 
-export const yen = n => '¥' + Math.round(Number(n) || 0).toLocaleString('ja-JP');
+export function addMinutes(time, minutes) {
+  const [h, m] = time.split(':').map(Number);
+  const t = (h * 60 + m + minutes + 1440) % 1440;
+  return `${pad(Math.floor(t / 60))}:${pad(t % 60)}`;
+}
 
-// Used to treat "ＡＩＺＯ", "aizo " and "AIZO" as the same song / artist.
-export const normTitle = s => String(s ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+export const yen = n => '¥' + Math.round(Number(n) || 0).toLocaleString('ja-JP');
 
 export function hue(s) {
   let h = 0;
   for (const c of String(s)) h = (h * 31 + c.codePointAt(0)) % 360;
   return h;
 }
+
+/* ---------- matching ---------- */
+
+const toHiragana = s => s.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+
+// "ＡＩＺＯ", "aizo", "A I Z O!" and "アイゾ"/"あいぞ" style variants all become the same key.
+export const matchKey = s =>
+  toHiragana(String(s ?? '').normalize('NFKC').toLowerCase()).replace(/[\s\p{P}\p{S}]/gu, '');
+
+// Words that mark a recording variant rather than a different song.
+const VERSION_RE =
+  /ver\b|ver\.|version|バージョン|ヴァージョン|remaster|album|single|edit|mix|size|\btv\b|live|ライブ|acoustic|アコースティック|mono|stereo|bonus|short|full|original|オリジナル|inst|demo|session|take/i;
+const BRACKETED = /\s*[([（【〔［][^)\]）】〕］]*[)\]）】〕］]/g;
+
+/** Title without "(ALBUM ver.)", " - Single Version", "feat. X" and similar suffixes. */
+export function baseTitle(title) {
+  let t = String(title ?? '').normalize('NFKC').trim();
+  t = t.replace(/\s*[([]\s*(?:feat|ft|with)\.?\s[^)\]]*[)\]]/gi, '').replace(/\s+(?:feat|ft)\.?\s.*$/i, '');
+  t = t.replace(BRACKETED, m => (VERSION_RE.test(m) ? '' : m));
+  t = t.replace(/\s+[-–—~〜]\s+[^-–—~〜]*$/, m => (VERSION_RE.test(m) ? '' : m));
+  return t.trim() || String(title ?? '').trim();
+}
+
+export const songKey = title => matchKey(baseTitle(title)) || String(title ?? '').trim();
+
+// Venues: "Zepp DiverCity (TOKYO)" and "Zepp DiverCity" are the same place.
+export const venueKey = name => matchKey(String(name ?? '').normalize('NFKC').replace(BRACKETED, '')) || matchKey(name);
+
+// Characters shared regardless of order, 0..1. Only meaningful for short titles.
+function charOverlap(A, B) {
+  const pool = [...B];
+  let hit = 0;
+  for (const c of A) {
+    const i = pool.indexOf(c);
+    if (i >= 0) {
+      hit++;
+      pool.splice(i, 1);
+    }
+  }
+  return (2 * hit) / (A.length + B.length);
+}
+
+/**
+ * 0..1 similarity of two keys (bigram Dice coefficient). Tolerates small typos and OCR mistakes;
+ * short Japanese titles also count shared characters, so "雨爆々" still finds "雨燦々".
+ */
+export function similarity(a, b) {
+  if (a === b) return 1;
+  const A = [...a];
+  const B = [...b];
+  const short = Math.max(A.length, B.length) <= 4 && A.length >= 2 && B.length >= 2 ? charOverlap(A, B) * 0.85 : 0;
+  if (A.length < 2 || B.length < 2) return 0;
+  return Math.max(short, bigramDice(A, B));
+}
+
+function bigramDice(A, B) {
+  const grams = new Map();
+  for (let i = 0; i < A.length - 1; i++) {
+    const g = A[i] + A[i + 1];
+    grams.set(g, (grams.get(g) || 0) + 1);
+  }
+  let hit = 0;
+  for (let i = 0; i < B.length - 1; i++) {
+    const g = B[i] + B[i + 1];
+    const n = grams.get(g);
+    if (n) {
+      hit++;
+      grams.set(g, n - 1);
+    }
+  }
+  return (2 * hit) / (A.length - 1 + B.length - 1);
+}
+
+/** How well `key` answers what the user typed (`q`, already a key). 0 = no match. */
+export function matchScore(q, key) {
+  if (!q) return 0;
+  if (key === q) return 4;
+  if (key.startsWith(q)) return 3;
+  if (key.includes(q)) return 2;
+  const s = similarity(q, key);
+  return s >= 0.5 ? s : 0;
+}
+
+/* ---------- misc ---------- */
 
 export const safeUrl = u => (/^https?:\/\//i.test(u || '') ? u : null);
 
@@ -54,13 +141,22 @@ export function toast(msg) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-// Shrinks a photo before storing it so hundreds of lives still fit on the phone.
-export function compressImage(file, max = 1600, quality = 0.82) {
+export function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// Shrinks a photo before storing it so it stays small on the phone and in the cloud later.
+export function compressImage(file, max = 1600, quality = 0.8) {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
+    const url = typeof file === 'string' ? file : URL.createObjectURL(file);
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
-      URL.revokeObjectURL(url);
+      if (typeof file !== 'string') URL.revokeObjectURL(url);
       const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
       const canvas = document.createElement('canvas');
       canvas.width = Math.round(img.naturalWidth * scale);
@@ -69,7 +165,7 @@ export function compressImage(file, max = 1600, quality = 0.82) {
       canvas.toBlob(b => (b ? resolve(b) : reject(new Error('画像の変換に失敗しました'))), 'image/jpeg', quality);
     };
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      if (typeof file !== 'string') URL.revokeObjectURL(url);
       reject(new Error('画像を読み込めませんでした'));
     };
     img.src = url;

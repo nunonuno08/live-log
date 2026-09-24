@@ -1,70 +1,199 @@
-// In-memory copy of all artists and lives, written through to IndexedDB.
-// Photos stay in IndexedDB and are loaded on demand.
+// In-memory copy of all records, written through to IndexedDB. Photos stay in IndexedDB.
+//
+// Songs and venues are records of their own and lives point at them by id, so the
+// same song is counted once even if it was typed differently or came from a
+// different release (single / album version). Duplicates can be merged later.
 import * as db from './db.js';
-import { uid, today, normTitle } from './util.js';
+import { uid, today, matchKey, songKey, baseTitle, venueKey } from './util.js';
 
-export const state = { artists: new Map(), lives: new Map() };
+export const state = { artists: new Map(), lives: new Map(), songs: new Map(), venues: new Map() };
+
+const RECORD_STORES = ['artists', 'lives', 'songs', 'venues'];
+const stamp = r => ((r.updatedAt = Date.now()), r);
 
 export async function load() {
-  const [artists, lives] = await Promise.all([db.getAll('artists'), db.getAll('lives')]);
+  const [artists, lives, songs, venues] = await Promise.all(RECORD_STORES.map(s => db.getAll(s)));
   state.artists = new Map(artists.map(a => [a.id, a]));
   state.lives = new Map(lives.map(l => [l.id, l]));
+  state.songs = new Map(songs.map(s => [s.id, s]));
+  state.venues = new Map(venues.map(v => [v.id, v]));
+  await migrateV1();
 }
 
 /* ---------- artists ---------- */
 
 export const artistName = id => state.artists.get(id)?.name ?? '(不明)';
 
-export function findArtistByName(name) {
-  const n = normTitle(name);
-  return [...state.artists.values()].find(a => normTitle(a.name) === n);
+export function findArtist(name, itunesId) {
+  const k = matchKey(name);
+  return [...state.artists.values()].find(a => (itunesId && a.itunesId === itunesId) || matchKey(a.name) === k);
 }
 
-export async function ensureArtist(name) {
-  const found = findArtistByName(name);
-  if (found) return found.id;
-  const artist = { id: uid(), name: name.trim(), photoId: null, createdAt: Date.now() };
+export async function ensureArtist(name, extra = {}) {
+  const found = findArtist(name, extra.itunesId);
+  if (found) {
+    if (extra.itunesId && !found.itunesId) await saveArtist({ ...found, itunesId: extra.itunesId });
+    return found.id;
+  }
+  const artist = { id: uid(), name: name.trim(), itunesId: extra.itunesId || null, photoId: null, createdAt: Date.now() };
   await saveArtist(artist);
   return artist.id;
 }
 
-export async function saveArtist(artist) {
-  state.artists.set(artist.id, artist);
-  await db.put('artists', artist);
+export async function saveArtist(a) {
+  state.artists.set(a.id, stamp(a));
+  await db.put('artists', a);
 }
 
 export async function deleteArtist(id) {
   const a = state.artists.get(id);
   if (a?.photoId) await deletePhoto(a.photoId);
+  const songs = [...state.songs.values()].filter(s => s.artistId === id);
+  songs.forEach(s => state.songs.delete(s.id));
+  if (songs.length) await db.del('songs', ...songs.map(s => s.id));
   state.artists.delete(id);
   await db.del('artists', id);
+  await db.del('catalogs', id);
 }
 
-// Moves every reference of `fromId` onto `toId`, then removes `fromId` (used to fix typos).
+/** Moves lives and songs of `fromId` onto `toId` (used to fix duplicate artists). */
 export async function mergeArtist(fromId, toId) {
-  const changed = [];
+  const lives = [];
   for (const l of state.lives.values()) {
-    if (!l.artistIds.includes(fromId) && !l.setlist?.some(it => it.artistId === fromId)) continue;
+    if (!l.artistIds.includes(fromId)) continue;
     l.artistIds = [...new Set(l.artistIds.map(id => (id === fromId ? toId : id)))];
-    l.setlist = (l.setlist || []).map(it => (it.artistId === fromId ? { ...it, artistId: toId } : it));
-    changed.push(l);
+    lives.push(stamp(l));
   }
-  if (changed.length) await db.put('lives', ...changed);
+  if (lives.length) await db.put('lives', ...lives);
+  for (const s of [...state.songs.values()].filter(s => s.artistId === fromId)) {
+    const same = findSong(toId, s.title);
+    if (same) await mergeSong(s.id, same.id);
+    else await saveSong({ ...s, artistId: toId });
+  }
   const from = state.artists.get(fromId);
   const to = state.artists.get(toId);
   if (from?.photoId && !to.photoId) {
     to.photoId = from.photoId;
     from.photoId = null;
-    await saveArtist(to);
   }
+  if (from?.itunesId && !to.itunesId) to.itunesId = from.itunesId;
+  await saveArtist(to);
   await deleteArtist(fromId);
+}
+
+/* ---------- songs ---------- */
+
+export const songTitle = id => state.songs.get(id)?.title ?? '(不明な曲)';
+
+export function findSong(artistId, title) {
+  const k = songKey(title);
+  return [...state.songs.values()].find(s => s.artistId === artistId && (s.key === k || s.aliases?.includes(k)));
+}
+
+export async function ensureSong(artistId, title, extra = {}) {
+  const found = findSong(artistId, title);
+  if (found) {
+    if (extra.artwork && !found.artwork) await saveSong({ ...found, artwork: extra.artwork });
+    return found.id;
+  }
+  const song = {
+    id: uid(),
+    artistId,
+    title: baseTitle(title),
+    key: songKey(title),
+    aliases: [],
+    artwork: extra.artwork || '',
+    createdAt: Date.now(),
+  };
+  await saveSong(song);
+  return song.id;
+}
+
+export async function saveSong(s) {
+  state.songs.set(s.id, stamp(s));
+  await db.put('songs', s);
+}
+
+export async function renameSong(id, title) {
+  const s = state.songs.get(id);
+  const k = songKey(title);
+  const aliases = new Set([...(s.aliases || []), s.key]);
+  aliases.delete(k);
+  await saveSong({ ...s, title: title.trim(), key: k, aliases: [...aliases] });
+}
+
+/** Every setlist entry of `fromId` becomes `toId`; the old spelling is remembered as an alias. */
+export async function mergeSong(fromId, toId) {
+  const from = state.songs.get(fromId);
+  const to = state.songs.get(toId);
+  const lives = [];
+  for (const l of state.lives.values()) {
+    if (!l.setlist?.some(it => it.songId === fromId)) continue;
+    l.setlist = l.setlist.map(it => (it.songId === fromId ? { ...it, songId: toId } : it));
+    lives.push(stamp(l));
+  }
+  if (lives.length) await db.put('lives', ...lives);
+  const aliases = new Set([...(to.aliases || []), from.key, ...(from.aliases || [])]);
+  aliases.delete(to.key);
+  await saveSong({ ...to, aliases: [...aliases], artwork: to.artwork || from.artwork });
+  state.songs.delete(fromId);
+  await db.del('songs', fromId);
+}
+
+/* ---------- venues ---------- */
+
+export const venueName = id => state.venues.get(id)?.name ?? '';
+
+export function findVenue(name) {
+  const k = venueKey(name);
+  return [...state.venues.values()].find(v => v.key === k || v.aliases?.includes(k));
+}
+
+export async function ensureVenue(name, extra = {}) {
+  const found = findVenue(name);
+  if (found) {
+    if (extra.lat && !found.lat) await saveVenue({ ...found, lat: extra.lat, lon: extra.lon, area: extra.area || found.area });
+    return found.id;
+  }
+  const venue = { id: uid(), name: name.trim(), key: venueKey(name), aliases: [], area: extra.area || '', lat: extra.lat || null, lon: extra.lon || null, createdAt: Date.now() };
+  await saveVenue(venue);
+  return venue.id;
+}
+
+export async function saveVenue(v) {
+  state.venues.set(v.id, stamp(v));
+  await db.put('venues', v);
+}
+
+export async function renameVenue(id, name) {
+  const v = state.venues.get(id);
+  const k = venueKey(name);
+  const aliases = new Set([...(v.aliases || []), v.key]);
+  aliases.delete(k);
+  await saveVenue({ ...v, name: name.trim(), key: k, aliases: [...aliases] });
+}
+
+export async function mergeVenue(fromId, toId) {
+  const from = state.venues.get(fromId);
+  const to = state.venues.get(toId);
+  const lives = [];
+  for (const l of state.lives.values()) {
+    if (l.venueId !== fromId) continue;
+    l.venueId = toId;
+    lives.push(stamp(l));
+  }
+  if (lives.length) await db.put('lives', ...lives);
+  const aliases = new Set([...(to.aliases || []), from.key, ...(from.aliases || [])]);
+  aliases.delete(to.key);
+  await saveVenue({ ...to, aliases: [...aliases], lat: to.lat || from.lat, lon: to.lon || from.lon, area: to.area || from.area });
+  state.venues.delete(fromId);
+  await db.del('venues', fromId);
 }
 
 /* ---------- lives ---------- */
 
 export async function saveLive(live) {
-  live.updatedAt = Date.now();
-  state.lives.set(live.id, live);
+  state.lives.set(live.id, stamp(live));
   await db.put('lives', live);
 }
 
@@ -91,14 +220,8 @@ export const livesOfArtist = id => allLives().filter(l => l.artistIds.includes(i
 
 export const liveTitle = l => l.title?.trim() || l.artistIds.map(artistName).join(' / ') || '(無題)';
 
-/* ---------- songs ---------- */
-
-export const songs = l => (l.setlist || []).filter(it => it.kind === 'song' && it.title?.trim());
-
-// A song without its own artist belongs to the live's main (first) artist.
-export const songArtist = (item, live) => item.artistId || live.artistIds[0];
-
-export const songKey = (item, live) => `${songArtist(item, live)}|${normTitle(item.title)}`;
+/** Song ids of a live's setlist, in order (encore markers skipped). */
+export const songIdsOf = l => (l.setlist || []).filter(it => it.kind === 'song' && state.songs.has(it.songId)).map(it => it.songId);
 
 /** liveId -> array aligned with that live's setlist: how many times you had heard each song, including this one. */
 export function playCounts() {
@@ -108,10 +231,9 @@ export function playCounts() {
     counts.set(
       l.id,
       (l.setlist || []).map(it => {
-        if (it.kind !== 'song' || !it.title?.trim()) return 0;
-        const k = songKey(it, l);
-        const n = (seen.get(k) || 0) + 1;
-        seen.set(k, n);
+        if (it.kind !== 'song') return 0;
+        const n = (seen.get(it.songId) || 0) + 1;
+        seen.set(it.songId, n);
         return n;
       }),
     );
@@ -119,19 +241,25 @@ export function playCounts() {
   return counts;
 }
 
-/** Songs heard across `lives`, most played first. */
+/** Songs heard across `lives`, most played first: [{ song, count, lives }]. */
 export function songTable(lives) {
   const table = new Map();
   for (const l of lives) {
-    for (const it of songs(l)) {
-      const key = songKey(it, l);
-      let s = table.get(key);
-      if (!s) table.set(key, (s = { key, title: it.title.trim(), artistId: songArtist(it, l), count: 0, lives: [] }));
-      s.count++;
-      if (!s.lives.includes(l)) s.lives.push(l);
+    for (const id of songIdsOf(l)) {
+      let row = table.get(id);
+      if (!row) table.set(id, (row = { song: state.songs.get(id), count: 0, lives: [] }));
+      row.count++;
+      if (!row.lives.includes(l)) row.lives.push(l);
     }
   }
-  return [...table.values()].sort((a, b) => b.count - a.count || a.title.localeCompare(b.title, 'ja'));
+  return [...table.values()].sort((a, b) => b.count - a.count || a.song.title.localeCompare(b.song.title, 'ja'));
+}
+
+/** How many past lives each song was played at. */
+export function songCounts() {
+  const counts = new Map();
+  for (const l of state.lives.values()) if (isPast(l)) for (const id of new Set(songIdsOf(l))) counts.set(id, (counts.get(id) || 0) + 1);
+  return counts;
 }
 
 /* ---------- photos ---------- */
@@ -179,12 +307,45 @@ export async function cleanupOrphanPhotos(keep = []) {
 export const photoCount = () => db.count('photos');
 export const allPhotos = () => db.getAll('photos');
 
-export async function replaceAll({ artists = [], lives = [], photos = [] }) {
-  await db.clear('artists', 'lives', 'photos');
+/* ---------- catalogs (cached iTunes song lists) ---------- */
+
+export const getCatalog = artistId => db.get('catalogs', artistId);
+export const putCatalog = (artistId, items) => db.put('catalogs', { id: artistId, fetchedAt: Date.now(), items });
+
+/* ---------- backup ---------- */
+
+export async function replaceAll({ artists = [], lives = [], songs = [], venues = [], photos = [] }) {
+  await db.clear(...RECORD_STORES, 'photos', 'catalogs');
   urls.forEach(u => URL.revokeObjectURL(u));
   urls.clear();
-  if (artists.length) await db.put('artists', ...artists);
-  if (lives.length) await db.put('lives', ...lives);
-  if (photos.length) await db.put('photos', ...photos);
+  const puts = { artists, lives, songs, venues, photos };
+  for (const [store, list] of Object.entries(puts)) if (list.length) await db.put(store, ...list);
   await load();
+}
+
+/* ---------- migration from the first version ---------- */
+
+// v1 stored song titles and venue names directly on each live, plus MC/SE/VCR markers.
+async function migrateV1() {
+  const changed = [];
+  for (const l of state.lives.values()) {
+    let dirty = false;
+    if (typeof l.venue === 'string') {
+      if (l.venue.trim() && !l.venueId) l.venueId = await ensureVenue(l.venue);
+      delete l.venue;
+      dirty = true;
+    }
+    if (l.setlist?.some(it => (it.kind === 'song' && !it.songId) || !['song', 'en'].includes(it.kind))) {
+      const out = [];
+      for (const it of l.setlist) {
+        if (it.kind === 'en') out.push({ kind: 'en' });
+        else if (it.kind === 'song' && it.songId) out.push(it);
+        else if (it.kind === 'song' && it.title?.trim()) out.push({ kind: 'song', songId: await ensureSong(it.artistId || l.artistIds[0], it.title) });
+      }
+      l.setlist = out;
+      dirty = true;
+    }
+    if (dirty) changed.push(l);
+  }
+  if (changed.length) await db.put('lives', ...changed);
 }

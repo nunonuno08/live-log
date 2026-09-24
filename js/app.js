@@ -1,16 +1,20 @@
 import { load, cleanupOrphanPhotos } from './store.js';
 import { nav } from './nav.js';
+import { closeAllSheets } from './ui.js';
 import * as home from './views/home.js';
+import * as lives from './views/lives.js';
 import * as artist from './views/artist.js';
 import * as live from './views/live.js';
 import * as edit from './views/edit.js';
 import * as stats from './views/stats.js';
+import * as detail from './views/detail.js';
 import * as settings from './views/settings.js';
 
 const root = document.getElementById('app');
 const fab = document.getElementById('fab');
 const scrollPos = new Map();
 let cleanup = null;
+let fabAction = null;
 
 function parseHash() {
   const [path, qs] = (location.hash || '#/').slice(1).split('?');
@@ -23,25 +27,32 @@ function parseHash() {
 function route() {
   cleanup?.();
   cleanup = null;
+  closeAllSheets();
   const { parts, params } = parseHash();
   const [name, id] = parts;
   const view = document.createElement('div');
   view.className = 'view';
   root.replaceChildren(view);
 
+  // tab: which bottom tab is lit (null hides the tab bar); fabAction: what "+" does.
   let tab = 'home';
-  let fabHref = '#/new';
+  fabAction = null;
   switch (name) {
     case undefined:
       home.render(view);
+      fabAction = home.addArtist;
+      break;
+    case 'lives':
+      lives.render(view);
+      tab = 'lives';
+      fabAction = lives.addLive;
       break;
     case 'artist':
       artist.render(view, id);
-      fabHref = `#/new?artist=${id}`;
       break;
     case 'live':
       live.render(view, id);
-      fabHref = null;
+      tab = 'lives';
       break;
     case 'new':
     case 'edit':
@@ -53,14 +64,16 @@ function route() {
       tab = 'stats';
       break;
     case 'song':
-      stats.renderSong(view, id);
+      detail.renderSong(view, id);
       tab = 'stats';
-      fabHref = null;
+      break;
+    case 'venue':
+      detail.renderVenue(view, id);
+      tab = 'stats';
       break;
     case 'settings':
       settings.render(view);
       tab = 'settings';
-      fabHref = null;
       break;
     default:
       location.replace('#/');
@@ -69,10 +82,11 @@ function route() {
 
   document.body.classList.toggle('editing', !tab);
   document.querySelectorAll('#tabbar a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
-  fab.hidden = !fabHref || !tab;
-  if (fabHref) fab.href = fabHref;
+  fab.hidden = !fabAction;
   window.scrollTo(0, scrollPos.get(location.hash || '#/') || 0);
 }
+
+fab.addEventListener('click', () => fabAction?.());
 
 nav.rerender = () => {
   const y = window.scrollY;

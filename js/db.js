@@ -1,7 +1,8 @@
 // Thin promise wrapper around IndexedDB. Every store uses `id` as its key.
 const DB_NAME = 'livelog';
-const DB_VERSION = 1;
-const STORES = ['artists', 'lives', 'photos'];
+const DB_VERSION = 2;
+// catalogs: cached song lists from iTunes per artist (re-downloadable, never backed up).
+const STORES = ['artists', 'lives', 'songs', 'venues', 'photos', 'catalogs'];
 
 let dbPromise;
 
