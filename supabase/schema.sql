@@ -32,7 +32,10 @@ drop trigger if exists records_keep_newest on public.records;
 create trigger records_keep_newest before insert or update on public.records
   for each row execute function public.records_keep_newest();
 
--- Each person can only see and change their own rows.
+-- Logged-in users may use the table (needed when "Automatically expose new tables" is off)...
+grant select, insert, update, delete on public.records to authenticated;
+
+-- ...but each person can only see and change their own rows.
 alter table public.records enable row level security;
 drop policy if exists "own records" on public.records;
 create policy "own records" on public.records
