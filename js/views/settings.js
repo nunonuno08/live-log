@@ -3,7 +3,7 @@ import { toast, today, blobToDataUrl, shareOrDownload } from '../util.js';
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
 
 export function render(view) {
   const last = Number(localStorage.getItem(BACKUP_KEY)) || 0;

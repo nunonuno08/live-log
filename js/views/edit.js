@@ -1,11 +1,15 @@
 import {
   state, saveLive, saveSong, ensureSong, ensureVenue, artistName, venueName, savePhoto, deletePhoto, hydratePhotos, allLives, songCounts,
 } from '../store.js';
-import { esc, uid, today, toast, compressImage, matchKey, songKey, venueKey, matchScore } from '../util.js';
+import { esc, uid, today, toast, compressImage, matchKey, songKey, venueKey, matchScore, addMinutes } from '../util.js';
 import { TYPES, EXPENSE_CATS, avatar, songArt, notFound } from '../components.js';
 import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js';
-import { catalogFor, searchPlaces, KNOWN_VENUES } from '../music.js';
-import { openSheet, suggest, pickArtist, pickTime } from '../ui.js';
+import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
+import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
+
+// One tap picks a time; these cover almost every show. Anything else via "その他".
+const RAIL_TIMES = [];
+for (let m = 14 * 60; m <= 21 * 60; m += 30) RAIL_TIMES.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
 import { goBack, replace } from '../nav.js';
 
 // The form is mirrored to localStorage while editing: iOS may reload the app when you
@@ -114,14 +118,14 @@ export function render(view, id, params) {
       <div class="field"><span>アーティスト</span><div id="ed-artists" class="chips"></div></div>
       <div class="field"><span>日付</span><input type="date" data-f="date"></div>
       <div class="field"><span>種別</span><div id="ed-type" class="chips"></div></div>
-      <label class="field"><span>ライブ名</span><input data-f="title" list="dl-titles" placeholder="ツアー名など（空欄ならアーティスト名）" autocomplete="off"></label>
+      <div class="field"><span>ライブ名・ツアー名</span>
+        <div class="ac"><input data-f="title" placeholder="タップすると候補が出ます（空欄ならアーティスト名）" autocomplete="off" enterkeyhint="done"><div class="sg" id="title-sg"></div></div>
+      </div>
       <div class="field"><span>会場</span>
         <div class="ac"><input id="venue-input" placeholder="会場名を入力" autocomplete="off" enterkeyhint="done"><div class="sg" id="venue-sg"></div></div>
       </div>
-      <div class="row2">
-        <div class="field"><span>開場</span><button type="button" class="time-btn" data-time="openTime"></button></div>
-        <div class="field"><span>開演</span><button type="button" class="time-btn" data-time="startTime"></button></div>
-      </div>
+      <div class="field"><span>開場 <b class="tval" data-tval="openTime"></b></span><div class="time-rail" data-rail="openTime"></div></div>
+      <div class="field"><span>開演 <b class="tval" data-tval="startTime"></b></span><div class="time-rail" data-rail="startTime"></div></div>
     </section>
 
     <section class="card">
@@ -146,8 +150,7 @@ export function render(view, id, params) {
     </section>
 
     <section class="card"><h2>写真</h2><div id="ed-photo"></div></section>
-    <section class="card"><h2>感想・メモ</h2><textarea data-f="memo" rows="5" placeholder="よかったところ、MCの話など"></textarea></section>
-    <datalist id="dl-titles"></datalist>`;
+    <section class="card"><h2>感想・メモ</h2><textarea data-f="memo" rows="5" placeholder="よかったところ、MCの話など"></textarea></section>`;
 
   const $ = sel => view.querySelector(sel);
   view.querySelectorAll('[data-f]').forEach(el => (el.value = draft[el.dataset.f] ?? ''));
@@ -168,19 +171,90 @@ export function render(view, id, params) {
         ? `<span class="muted small">次の曲:</span>` +
           draft.artistIds.map(aid => `<button type="button" class="chip ${aid === activeArtist ? 'on' : ''}" data-active="${aid}">${esc(artistName(aid))}</button>`).join('')
         : '';
-    const titles = new Set(allLives().filter(l => l.artistIds.some(a => draft.artistIds.includes(a)) && l.title?.trim()).map(l => l.title.trim()));
-    $('#dl-titles').innerHTML = [...titles].map(t => `<option value="${esc(t)}"></option>`).join('');
   }
 
   const drawType = () =>
     ($('#ed-type').innerHTML = TYPES.map(t => `<button type="button" class="chip ${draft.type === t ? 'on' : ''}" data-type="${t}">${t}</button>`).join(''));
 
-  const drawTimes = () =>
-    view.querySelectorAll('[data-time]').forEach(b => {
-      const v = draft[b.dataset.time];
-      b.textContent = v || '未設定';
-      b.classList.toggle('empty', !v);
-    });
+  /* ----- tour / live name ----- */
+  // Suggestions: names you used before for these artists, then tours listed on Wikipedia,
+  // with the ones from the live's year first.
+  const titleInput = view.querySelector('[data-f=title]');
+  const titleSg = suggest(titleInput, $('#title-sg'), {
+    async fetch(q) {
+      const qk = matchKey(q);
+      const year = (draft.date || today()).slice(0, 4);
+      const mine = new Map();
+      for (const l of allLives()) {
+        if (l.id === existing?.id || !l.title?.trim() || !l.artistIds.some(a => draft.artistIds.includes(a))) continue;
+        const k = matchKey(l.title);
+        const m = mine.get(k) || { title: l.title.trim(), count: 0, year: '' };
+        m.count++;
+        m.year = l.date.slice(0, 4);
+        mine.set(k, m);
+      }
+      const tours = (await Promise.all(draft.artistIds.map(aid => toursFor(aid).catch(() => [])))).flat();
+      const items = [
+        ...[...mine.values()].map(m => ({ ...m, sub: `記録済み ${m.count}回` })),
+        ...tours.filter(t => !mine.has(matchKey(t.title))).map(t => ({ ...t, sub: t.year ? `${t.year}年` : '' })),
+      ];
+      const near = it => (it.year === year ? 3 : it.year && Math.abs(it.year - year) === 1 ? 1 : 0);
+      return items
+        .map(it => ({ it, s: qk ? matchScore(qk, matchKey(it.title)) : 1 }))
+        .filter(x => x.s)
+        .sort((a, b) => b.s - a.s || near(b.it) - near(a.it) || (b.it.count || 0) - (a.it.count || 0) || (b.it.year || '').localeCompare(a.it.year || ''))
+        .slice(0, 6)
+        .map(x => x.it);
+    },
+    render: it => `<span class="sg-main">${esc(it.title)}</span><small>${esc(it.sub)}</small>`,
+    onPick(it) {
+      titleInput.value = it.title;
+      draft.title = it.title;
+      titleSg.clear();
+      titleInput.blur();
+      persist();
+    },
+  });
+  titleInput.addEventListener('focus', () => titleSg.refresh());
+  titleInput.addEventListener('blur', () => setTimeout(() => titleSg.clear(), 150));
+
+  /* ----- open / start times ----- */
+  function railHtml(key) {
+    const v = draft[key];
+    const quick =
+      key === 'startTime' && draft.openTime
+        ? [30, 60].map(min => ({ t: addMinutes(draft.openTime, min), label: min === 60 ? '開場+1時間' : '開場+30分' }))
+        : [];
+    const times = [...new Set([...RAIL_TIMES, ...(v ? [v] : [])])].sort();
+    return (
+      quick.map(q => `<button type="button" class="tchip quick ${v === q.t ? 'on' : ''}" data-set="${key}" data-v="${q.t}"><small>${q.label}</small>${q.t}</button>`).join('') +
+      times.map(t => `<button type="button" class="tchip ${v === t ? 'on' : ''}" data-set="${key}" data-v="${t}">${t}</button>`).join('') +
+      `<label class="tchip other">その他<input type="time" data-other="${key}" value="${esc(v)}" aria-label="時刻を指定"></label>`
+    );
+  }
+
+  function drawTimes(initial = false) {
+    for (const key of ['openTime', 'startTime']) {
+      const rail = view.querySelector(`[data-rail="${key}"]`);
+      const keep = rail.scrollLeft;
+      rail.innerHTML = railHtml(key);
+      view.querySelector(`[data-tval="${key}"]`).innerHTML = draft[key] ? `${draft[key]} <button type="button" class="txt small" data-set="${key}" data-v="">クリア</button>` : '';
+      if (initial) {
+        // Start scrolled to the chosen time, or to the usual evening slot.
+        const target = rail.querySelector('.tchip.on:not(.quick)') || rail.querySelector(`[data-v="${key === 'openTime' ? '17:00' : '18:00'}"]`);
+        rail.scrollLeft = target ? target.offsetLeft - rail.offsetLeft - 8 : 0;
+      } else rail.scrollLeft = keep;
+    }
+    // "開場+30分 / +1時間" sit at the start of the rail: show them once the open time is known.
+    if (draft.openTime && !draft.startTime) view.querySelector('[data-rail="startTime"]').scrollLeft = 0;
+  }
+
+  // Tapping the selected time again clears it.
+  function setTime(key, v) {
+    draft[key] = draft[key] === v ? '' : v;
+    drawTimes();
+    persist();
+  }
 
   /* ----- venue ----- */
   const venueInput = $('#venue-input');
@@ -393,6 +467,8 @@ export function render(view, id, params) {
   }
 
   async function readPhoto(file) {
+    const image = await cropImage(file);
+    if (!image) return;
     let setStatus;
     let closeProgress;
     openSheet({
@@ -404,7 +480,7 @@ export function render(view, id, params) {
       },
     });
     try {
-      const texts = await readImageTexts(file, msg => setStatus?.(msg));
+      const texts = await readImageTexts(image, msg => setStatus?.(msg));
       closeProgress?.();
       review(pickLines(texts, await allCandidates()), '読み取り結果の確認', { fromPhoto: true });
     } catch (err) {
@@ -523,6 +599,14 @@ export function render(view, id, params) {
     else if (t.dataset.exa != null) draft.expenses[Number(t.dataset.exa)].amount = t.value;
     else if (t.dataset.exc != null) draft.expenses[Number(t.dataset.exc)].category = t.value;
     else if (t.matches('[data-phadd]') && e.type === 'change') return addPhoto(t.files[0]);
+    else if (t.dataset.other) {
+      if (e.type === 'change' && t.value) {
+        draft[t.dataset.other] = t.value;
+        drawTimes();
+        persist();
+      }
+      return;
+    }
     else if (t.id === 'ocr-file' && e.type === 'change') {
       if (t.files[0]) readPhoto(t.files[0]);
       t.value = '';
@@ -564,12 +648,8 @@ export function render(view, id, params) {
     } else if (d.type) {
       draft.type = d.type;
       drawType();
-    } else if (d.time) {
-      const v = await pickTime({ title: d.time === 'openTime' ? '開場時間' : '開演時間', value: draft[d.time], base: d.time === 'startTime' ? draft.openTime : '' });
-      if (v === null) return;
-      draft[d.time] = v;
-      drawTimes();
-    } else if (d.mv) {
+    } else if (d.set) return setTime(d.set, d.v);
+    else if (d.mv) {
       const i = Number(d.i);
       const j = i + Number(d.mv);
       [draft.setlist[i], draft.setlist[j]] = [draft.setlist[j], draft.setlist[i]];
@@ -591,7 +671,7 @@ export function render(view, id, params) {
 
   drawArtists();
   drawType();
-  drawTimes();
+  drawTimes(true);
   drawSetlist();
   drawExpenses();
   drawPhoto();

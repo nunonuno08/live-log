@@ -52,6 +52,79 @@ export async function catalogFor(artistId, { refresh = false } = {}) {
   }
 }
 
+/* ---------- tour names (Japanese Wikipedia) ---------- */
+
+const WIKI = 'https://ja.wikipedia.org/w/api.php?format=json&origin=*';
+const TOUR_WORD = /tour|ツアー|live|ライブ|ワンマン|公演|concert|コンサート|arena|hall|dome|ドーム|アリーナ|fes|フェス|gig/i;
+// Video releases and TV programmes also mention "LIVE"; skip them.
+const NOT_TOUR = /video|dvd|blu-?ray|viewing|cdtv|関ジャム|mステ|music station|\btv\b|テレビ|番組/i;
+
+async function wikiText(title) {
+  const j = await getJson(`${WIKI}&action=parse&prop=wikitext&redirects=1&page=${encodeURIComponent(title)}`);
+  return j.parse?.wikitext?.['*'] || '';
+}
+
+// Finds the artist's article and makes sure it is about a musician.
+async function artistWikiText(name) {
+  const isMusician = t => /Infobox[ _]Musician|Infobox[ _]音楽|アーティスト|バンド|歌手/.test(t.slice(0, 3000));
+  const direct = await wikiText(name).catch(() => '');
+  if (direct && isMusician(direct)) return direct;
+  const j = await getJson(`${WIKI}&action=query&list=search&srlimit=3&srsearch=${encodeURIComponent(name)}`);
+  const k = matchKey(name);
+  for (const hit of j.query?.search || []) {
+    if (!matchKey(hit.title).startsWith(k)) continue;
+    const t = await wikiText(hit.title).catch(() => '');
+    if (t && isMusician(t)) return t;
+  }
+  return '';
+}
+
+const cleanWiki = s =>
+  s
+    .replace(/<ref[^>]*\/>|<ref[^>]*>[\s\S]*?<\/ref>|<[^>]+>/g, '')
+    .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, '$1')
+    .replace(/'{2,}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** Tour / live titles mentioned in the artist's article: [{ title, year }]. */
+export function extractTours(wikitext) {
+  const byKey = new Map();
+  for (const rawLine of wikitext.split('\n')) {
+    const line = cleanWiki(rawLine);
+    const lineYear = line.match(/(19|20)\d{2}/)?.[0] || '';
+    // 「Title」, 『Title』 and bold '''Title''' entries in tour lists.
+    const found = [
+      ...[...line.matchAll(/[「『]([^」』]{4,90})[」』]/g)].map(m => m[1]),
+      ...[...rawLine.matchAll(/'''(?:\[\[(?:[^\]|]*\|)?)?([^'\]]{4,90})(?:\]\])?'''/g)].map(m => cleanWiki(m[1])),
+    ];
+    for (const found1 of found) {
+      const title = found1.trim();
+      if (!TOUR_WORD.test(title) || NOT_TOUR.test(title) || /https?:|\.jp|。/.test(title)) continue;
+      const key = matchKey(title);
+      if (!byKey.has(key)) byKey.set(key, { title, year: title.match(/(19|20)\d{2}/)?.[0] || lineYear });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** Tour names for an artist, cached for 30 days next to the song list. */
+export async function toursFor(artistId) {
+  const artist = state.artists.get(artistId);
+  if (!artist) return [];
+  const cacheId = `tours:${artistId}`;
+  const cached = await getCatalog(cacheId).catch(() => null);
+  if (cached && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
+  if (!navigator.onLine) return cached?.items || [];
+  try {
+    const items = extractTours(await artistWikiText(artist.name));
+    await putCatalog(cacheId, items);
+    return items;
+  } catch {
+    return cached?.items || [];
+  }
+}
+
 /* ---------- artist photos ---------- */
 
 function deezerSearch(name) {

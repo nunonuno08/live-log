@@ -67,37 +67,15 @@ function loadTesseract() {
   return tesseractLoading;
 }
 
-// Only shrinks very large photos (for speed). Upscaling or contrast tricks made
-// Tesseract read kanji worse in testing, so the image is otherwise left as is.
-function prepare(file) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
-      const c = document.createElement('canvas');
-      c.width = Math.round(img.naturalWidth * scale);
-      c.height = Math.round(img.naturalHeight * scale);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      resolve(c);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('画像を読み込めませんでした'));
-    };
-    img.src = url;
-  });
-}
-
 /**
- * Reads a setlist photo on the phone itself (nothing is uploaded; the first use downloads
- * the reading data). Two passes: Japanese-only reads kanji best, Japanese+English reads
- * symbols like "!!!" best. Returns both texts; `pickLines` combines them.
+ * Reads a setlist image (a canvas from the crop step) on the phone itself — nothing is
+ * uploaded; the first use downloads the reading data. The image is not enhanced:
+ * upscaling or contrast tricks made Tesseract read kanji worse in testing.
+ * Two passes: Japanese-only reads kanji best, Japanese+English reads symbols like "!!!"
+ * best. Returns both texts; `pickLines` combines them.
  */
-export async function readImageTexts(file, onProgress) {
+export async function readImageTexts(image, onProgress) {
   const Tesseract = await loadTesseract();
-  const image = await prepare(file);
   const texts = [];
   const passes = [['jpn'], ['eng', 'jpn']];
   for (const [i, langs] of passes.entries()) {

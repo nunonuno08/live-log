@@ -240,8 +240,34 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* ---------- editor ---------- */
-.time-btn { width: 100%; justify-content: flex-start; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; min-height: 46px; }
-.time-btn.empty { font-size: 15px; font-weight: 400; color: var(--muted); }
+.tval { color: var(--accent); font-size: 14px; margin-left: 6px; letter-spacing: 0; }
+.tval .txt { font-size: 12px; color: var(--muted); padding: 0 4px; font-weight: 600; }
+.time-rail { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px 4px; scroll-behavior: smooth; }
+.time-rail::-webkit-scrollbar { display: none; }
+.tchip {
+  flex: none; position: relative; min-width: 62px; padding: 10px 12px; border-radius: 12px; background: var(--surface2);
+  font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; display: inline-flex; flex-direction: column; align-items: center; line-height: 1.1;
+}
+.tchip.on { background: var(--text); color: var(--bg); }
+.tchip.quick { background: var(--accent-weak); color: var(--accent); }
+.tchip.quick.on { background: var(--accent); color: var(--accent-ink); }
+.tchip small { font-size: 10px; font-weight: 700; margin-bottom: 2px; }
+.tchip.other { color: var(--muted); font-weight: 600; font-size: 14px; justify-content: center; cursor: pointer; }
+/* The real time input covers the chip so a tap opens the phone's own picker. */
+.tchip.other input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; padding: 0; border: 0; }
+
+.crop-stage { display: flex; justify-content: center; margin: 8px 0 14px; }
+.crop-wrap { position: relative; display: inline-block; touch-action: none; user-select: none; -webkit-user-select: none; line-height: 0; }
+.crop-wrap img { max-width: 100%; max-height: 58vh; display: block; -webkit-touch-callout: none; }
+.crop-box { position: absolute; border: 2px solid var(--accent); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5); cursor: move; }
+.crop-wrap { overflow: hidden; border-radius: 8px; }
+.crop-box i { position: absolute; width: 28px; height: 28px; border: 4px solid #fff; }
+.crop-box i[data-h="nw"] { left: -6px; top: -6px; border-right: 0; border-bottom: 0; }
+.crop-box i[data-h="ne"] { right: -6px; top: -6px; border-left: 0; border-bottom: 0; }
+.crop-box i[data-h="sw"] { left: -6px; bottom: -6px; border-right: 0; border-top: 0; }
+.crop-box i[data-h="se"] { right: -6px; bottom: -6px; border-left: 0; border-top: 0; }
+/* Bigger invisible touch area for the corners. */
+.crop-box i::after { content: ""; position: absolute; inset: -14px; }
 
 .ac { position: relative; }
 .sg { display: flex; flex-direction: column; }
@@ -290,15 +316,6 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .menu { display: flex; flex-direction: column; gap: 8px; }
 .menu button { justify-content: flex-start; padding: 14px 16px; background: var(--surface); font-weight: 600; }
 
-.quick-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-.quick-row .chip { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
-.time-grid { display: grid; gap: 6px; margin-bottom: 14px; }
-.time-grid.hours { grid-template-columns: repeat(7, 1fr); }
-.time-grid.mins { grid-template-columns: repeat(4, 1fr); }
-.time-grid button { padding: 12px 0; font-size: 17px; font-weight: 700; background: var(--surface); font-variant-numeric: tabular-nums; }
-.time-grid button.on { background: var(--text); color: var(--bg); }
-.time-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.time-foot input { width: auto; margin-left: 6px; padding: 6px 8px; }
 
 .cand-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .cand { padding: 0; aspect-ratio: 1; overflow: hidden; border-radius: 12px; }

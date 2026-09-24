@@ -1,5 +1,5 @@
 // Bottom sheets and input helpers shared by the screens.
-import { esc, debounce, matchKey, matchScore, addMinutes, toast } from './util.js';
+import { esc, debounce, matchKey, matchScore, toast } from './util.js';
 import { state, ensureArtist, findArtist, allLives, hydratePhotos } from './store.js';
 import { searchArtists, autoArtistPhoto, catalogFor } from './music.js';
 import { avatar } from './components.js';
@@ -172,50 +172,77 @@ export function pickArtist({ title = 'アーティストを選ぶ', exclude = []
   });
 }
 
-/* ---------- time picker ---------- */
+/* ---------- crop ---------- */
 
-const HOURS = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
-const MINUTES = ['00', '15', '30', '45'];
+const MAX_OCR_SIDE = 2400;
 
-/** Two taps: hour, then minute. Resolves '' to clear, null when dismissed. */
-export function pickTime({ title, value = '', base = '' }) {
-  const [h0, m0] = value ? value.split(':') : ['', ''];
-  const quick = base
-    ? `<div class="quick-row">${[30, 60]
-        .map(min => `<button type="button" class="chip" data-quick="${addMinutes(base, min)}">開場の${min === 60 ? '1時間' : '30分'}後 (${addMinutes(base, min)})</button>`)
-        .join('')}</div>`
-    : '';
+/**
+ * Shows the photo with a draggable frame; resolves with a canvas of the framed part
+ * (or null when dismissed). Drag the corners to resize, the inside to move.
+ */
+export function cropImage(file) {
+  const url = URL.createObjectURL(file);
   return openSheet({
-    title,
-    html: `${quick}
-      <p class="muted small">時</p>
-      <div class="time-grid hours">${HOURS.map(h => `<button type="button" data-h="${String(h).padStart(2, '0')}">${h}</button>`).join('')}</div>
-      <p class="muted small">分</p>
-      <div class="time-grid mins">${MINUTES.map(m => `<button type="button" data-m="${m}">${m}</button>`).join('')}</div>
-      <div class="time-foot">
-        <label class="muted small">細かく指定 <input type="time" value="${esc(value)}"></label>
-        <button type="button" class="txt danger" data-clear>クリア</button>
-      </div>`,
+    title: '読み取る範囲を選ぶ',
+    tall: true,
+    html: `<p class="hint">四隅をドラッグして、曲名の部分だけを囲むと精度が上がります。</p>
+      <div class="crop-stage"><div class="crop-wrap"><img src="${url}" alt="" draggable="false">
+        <div class="crop-box"><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div></div>
+      <div class="btn-row"><button type="button" data-all>全体を使う</button><button type="button" class="primary" data-ok>この範囲を読み取る</button></div>`,
     onMount(sheet, close) {
-      let hour = h0;
-      const mark = () => {
-        sheet.querySelectorAll('[data-h]').forEach(b => b.classList.toggle('on', b.dataset.h === hour));
-        sheet.querySelectorAll('[data-m]').forEach(b => b.classList.toggle('on', hour === h0 && b.dataset.m === m0));
-      };
-      mark();
-      sheet.addEventListener('click', e => {
-        const b = e.target.closest('button');
-        if (!b) return;
-        if (b.dataset.quick) close(b.dataset.quick);
-        else if (b.dataset.h) {
-          hour = b.dataset.h;
-          mark();
-        } else if (b.dataset.m) {
-          if (!hour) return toast('先に「時」を選んでください');
-          close(`${hour}:${b.dataset.m}`);
-        } else if (b.dataset.clear != null) close('');
+      const wrap = sheet.querySelector('.crop-wrap');
+      const img = wrap.querySelector('img');
+      const box = wrap.querySelector('.crop-box');
+      // Frame in 0..1 of the image.
+      const r = { x: 0.06, y: 0.06, w: 0.88, h: 0.88 };
+      const MIN = 0.08;
+      const draw = () => Object.assign(box.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` });
+      draw();
+
+      let drag = null;
+      wrap.addEventListener('pointerdown', e => {
+        const rect = wrap.getBoundingClientRect();
+        drag = { mode: e.target.dataset.h || (e.target === box ? 'move' : null), sx: e.clientX, sy: e.clientY, rect, start: { ...r } };
+        if (!drag.mode) return (drag = null);
+        wrap.setPointerCapture(e.pointerId);
+        e.preventDefault();
       });
-      sheet.querySelector('input[type=time]').addEventListener('change', e => e.target.value && close(e.target.value));
+      wrap.addEventListener('pointermove', e => {
+        if (!drag) return;
+        const dx = (e.clientX - drag.sx) / drag.rect.width;
+        const dy = (e.clientY - drag.sy) / drag.rect.height;
+        const s = drag.start;
+        const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+        if (drag.mode === 'move') {
+          r.x = clamp(s.x + dx, 0, 1 - s.w);
+          r.y = clamp(s.y + dy, 0, 1 - s.h);
+        } else {
+          const left = drag.mode.includes('w') ? clamp(s.x + dx, 0, s.x + s.w - MIN) : s.x;
+          const right = drag.mode.includes('e') ? clamp(s.x + s.w + dx, s.x + MIN, 1) : s.x + s.w;
+          const top = drag.mode.includes('n') ? clamp(s.y + dy, 0, s.y + s.h - MIN) : s.y;
+          const bottom = drag.mode.includes('s') ? clamp(s.y + s.h + dy, s.y + MIN, 1) : s.y + s.h;
+          Object.assign(r, { x: left, y: top, w: right - left, h: bottom - top });
+        }
+        draw();
+      });
+      const end = () => (drag = null);
+      wrap.addEventListener('pointerup', end);
+      wrap.addEventListener('pointercancel', end);
+
+      const output = area => {
+        const sx = area.x * img.naturalWidth;
+        const sy = area.y * img.naturalHeight;
+        const sw = area.w * img.naturalWidth;
+        const sh = area.h * img.naturalHeight;
+        const scale = Math.min(1, MAX_OCR_SIDE / Math.max(sw, sh));
+        const c = document.createElement('canvas');
+        c.width = Math.round(sw * scale);
+        c.height = Math.round(sh * scale);
+        c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        close(c);
+      };
+      sheet.querySelector('[data-ok]').addEventListener('click', () => output(r));
+      sheet.querySelector('[data-all]').addEventListener('click', () => output({ x: 0, y: 0, w: 1, h: 1 }));
     },
-  });
+  }).finally(() => URL.revokeObjectURL(url));
 }

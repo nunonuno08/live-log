@@ -53,7 +53,7 @@ export async function deleteArtist(id) {
   if (songs.length) await db.del('songs', ...songs.map(s => s.id));
   state.artists.delete(id);
   await db.del('artists', id);
-  await db.del('catalogs', id);
+  await db.del('catalogs', id, `tours:${id}`);
 }
 
 /** Moves lives and songs of `fromId` onto `toId` (used to fix duplicate artists). */
