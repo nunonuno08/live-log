@@ -76,6 +76,37 @@ export async function load() {
   state.songs = new Map(songs.map(s => [s.id, s]));
   state.venues = new Map(venues.map(v => [v.id, v]));
   await migrateV1();
+  await rekeySongs();
+}
+
+// Bump when the song-matching rules change: existing songs get their keys recomputed and
+// songs that now turn out to be the same are merged (in id order, so every device agrees).
+const SONG_KEYS_VERSION = 2;
+const SONG_KEYS_FLAG = 'livelog-song-keys';
+
+async function rekeySongs() {
+  let done = 0;
+  try {
+    done = Number(localStorage.getItem(SONG_KEYS_FLAG)) || 0;
+  } catch {}
+  if (done >= SONG_KEYS_VERSION) return;
+  for (const s of [...state.songs.values()]) {
+    const title = baseTitle(s.title);
+    const key = songKey(s.title);
+    if (key === s.key && title === s.title) continue;
+    const aliases = new Set([...(s.aliases || []), s.key]);
+    aliases.delete(key);
+    await saveSong({ ...s, title, key, aliases: [...aliases] });
+  }
+  const first = new Map();
+  for (const s of [...state.songs.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+    const k = `${s.artistId}|${s.key}`;
+    if (first.has(k)) await mergeSong(s.id, first.get(k));
+    else first.set(k, s.id);
+  }
+  try {
+    localStorage.setItem(SONG_KEYS_FLAG, String(SONG_KEYS_VERSION));
+  } catch {}
 }
 
 /* ---------- artists ---------- */
@@ -376,7 +407,7 @@ export const allPhotos = () => db.getAll('photos');
 /* ---------- catalogs (cached iTunes song lists) ---------- */
 
 export const getCatalog = artistId => db.get('catalogs', artistId);
-export const putCatalog = (artistId, items) => db.put('catalogs', { id: artistId, fetchedAt: Date.now(), items });
+export const putCatalog = (artistId, items, version = 1) => db.put('catalogs', { id: artistId, fetchedAt: Date.now(), items, version });
 
 /* ---------- backup ---------- */
 

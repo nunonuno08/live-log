@@ -7,6 +7,8 @@ import { matchKey, songKey, baseTitle, similarity, compressImage } from './util.
 
 const ITUNES = 'https://itunes.apple.com';
 const CATALOG_MAX_AGE = 30 * 86400000;
+// Bump when song-title cleaning changes so cached song lists are rebuilt.
+const CATALOG_VERSION = 2;
 
 async function getJson(url, signal) {
   const res = await fetch(url, { signal });
@@ -27,7 +29,7 @@ export async function catalogFor(artistId, { refresh = false } = {}) {
   const artist = state.artists.get(artistId);
   if (!artist?.itunesId) return [];
   const cached = await getCatalog(artistId).catch(() => null);
-  if (cached && !refresh && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
+  if (cached && !refresh && cached.version === CATALOG_VERSION && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
   if (!navigator.onLine) return cached?.items || [];
   try {
     const [byId, byName] = await Promise.all([
@@ -45,7 +47,7 @@ export async function catalogFor(artistId, { refresh = false } = {}) {
       else if (title.length < prev.title.length) prev.title = title;
     }
     const items = [...byKey.values()];
-    await putCatalog(artistId, items);
+    await putCatalog(artistId, items, CATALOG_VERSION);
     return items;
   } catch {
     return cached?.items || [];

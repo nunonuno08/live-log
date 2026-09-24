@@ -59,12 +59,20 @@ const VERSION_RE =
   /ver\b|ver\.|version|バージョン|ヴァージョン|remaster|album|single|edit|mix|size|\btv\b|live|ライブ|acoustic|アコースティック|mono|stereo|bonus|short|full|original|オリジナル|inst|demo|session|take/i;
 const BRACKETED = /\s*[([（【〔［][^)\]）】〕］]*[)\]）】〕］]/g;
 
-/** Title without "(ALBUM ver.)", " - Single Version", "feat. X" and similar suffixes. */
+const HAS_JAPANESE = /[぀-ヿ㐀-鿿]/;
+
+/**
+ * Title without "(ALBUM ver.)", " - Single Version", "feat. X" and similar suffixes. Japanese
+ * titles also lose a trailing romanization / edition tag in plain ASCII, e.g. "燦然 - Sanzen"
+ * or "ひたむき (AA1)", which is how some of them appear on iTunes.
+ */
 export function baseTitle(title) {
   let t = String(title ?? '').normalize('NFKC').trim();
   t = t.replace(/\s*[([]\s*(?:feat|ft|with)\.?\s[^)\]]*[)\]]/gi, '').replace(/\s+(?:feat|ft)\.?\s.*$/i, '');
   t = t.replace(BRACKETED, m => (VERSION_RE.test(m) ? '' : m));
   t = t.replace(/\s+[-–—~〜]\s+[^-–—~〜]*$/, m => (VERSION_RE.test(m) ? '' : m));
+  const cut = t.replace(/\s*(?:[-–—~〜]\s*[\x20-\x7e]+|[([][\x20-\x7e]*[)\]])\s*$/, '');
+  if (HAS_JAPANESE.test(cut) && cut !== t) t = cut;
   return t.trim() || String(title ?? '').trim();
 }
 

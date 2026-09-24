@@ -40,6 +40,7 @@ export function render(view, id) {
   view.innerHTML = `
     <header class="top on-hero">
       <button class="icon-btn" data-back="#/lives" aria-label="戻る">‹</button><h1></h1>
+      <a class="icon-btn" href="#/new?from=${id}" aria-label="このライブを複製">⧉</a>
       <button class="icon-btn" data-act="share" aria-label="共有">⤴</button>
       <a class="icon-btn" href="#/edit/${id}" aria-label="編集">✎</a>
     </header>

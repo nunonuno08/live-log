@@ -12,7 +12,7 @@ export function avatar(artist, cls = '') {
 
 export function songArt(song, cls = '') {
   return song?.artwork
-    ? `<img class="art ${cls}" src="${esc(song.artwork)}" crossorigin="anonymous" loading="lazy" alt="">`
+    ? `<img class="art ${cls}" src="${esc(song.artwork)}" crossorigin="anonymous" loading="lazy" alt="" onerror="this.removeAttribute('src')">`
     : `<span class="art ${cls} none">♪</span>`;
 }
 

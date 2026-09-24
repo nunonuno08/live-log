@@ -1,20 +1,16 @@
 import {
   state, saveLive, saveSong, ensureSong, ensureVenue, artistName, venueName, savePhoto, deletePhoto, hydratePhotos, allLives, songCounts,
 } from '../store.js';
-import { esc, uid, today, toast, compressImage, matchKey, songKey, venueKey, matchScore, addMinutes } from '../util.js';
+import { esc, uid, today, toast, compressImage, matchKey, songKey, venueKey, matchScore, similarity, addMinutes } from '../util.js';
 import { TYPES, EXPENSE_CATS, avatar, songArt, notFound } from '../components.js';
 import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js';
 import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
-import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
+import { openSheet, suggest, pickArtist, cropImage, wheelTime } from '../ui.js';
 
-// Usual door times; your own most frequent ones are added. Anything else via "その他".
-const DOOR_TIMES = ['17:00', '17:30', '18:00', '18:30'];
-// The show usually starts 1 or 2 hours after doors open.
-const START_OFFSETS = [
-  [60, '1時間後'],
-  [120, '2時間後'],
-  [30, '30分後'],
-];
+// Doors are almost always in the afternoon or evening, and the show usually starts
+// two hours later (sometimes one).
+const DOOR_WHEEL_START = '15:00';
+const SHOW_OFFSET = 120;
 import { goBack, replace } from '../nav.js';
 
 // The form is mirrored to localStorage while editing: iOS may reload the app when you
@@ -78,11 +74,17 @@ export function render(view, id, params) {
     view.innerHTML = notFound('ライブ');
     return;
   }
-  const key = DRAFT_PREFIX + (id || 'new');
-  const initial = JSON.stringify(existing ? toDraft(existing) : blankDraft(params.get('artist')));
+  // "Duplicate": same tour on another day — keep everything except the date, seat, photo and notes.
+  const source = !id && params.get('from') ? state.lives.get(params.get('from')) : null;
+  const copyDraft = () => ({ ...toDraft(source), date: '', seat: '', memo: '', photoIds: [] });
+  const key = DRAFT_PREFIX + (id || (source ? `copy:${source.id}` : 'new'));
+  const initial = JSON.stringify(existing ? toDraft(existing) : source ? copyDraft() : blankDraft(params.get('artist')));
   let draft = readDraft(key);
   if (draft) setTimeout(() => toast('編集途中の内容を復元しました'), 300);
-  else draft = JSON.parse(initial);
+  else {
+    draft = JSON.parse(initial);
+    if (source) setTimeout(() => toast('複製しました。日付と座席を入れて保存してください'), 300);
+  }
   let activeArtist = draft.artistIds[0];
 
   /* ----- draft persistence ----- */
@@ -115,7 +117,7 @@ export function render(view, id, params) {
   view.innerHTML = `
     <header class="top">
       <button class="txt" data-act="cancel">キャンセル</button>
-      <h1 class="center">${existing ? 'ライブを編集' : 'ライブを記録'}</h1>
+      <h1 class="center">${existing ? 'ライブを編集' : source ? 'ライブを複製' : 'ライブを記録'}</h1>
       <button class="txt primary" data-act="save">保存</button>
     </header>
 
@@ -129,8 +131,10 @@ export function render(view, id, params) {
       <div class="field"><span>会場</span>
         <div class="ac"><input id="venue-input" placeholder="会場名を入力" autocomplete="off" enterkeyhint="done"><div class="sg" id="venue-sg"></div></div>
       </div>
-      <div class="field"><span>開場</span><div class="time-chips" data-times="openTime"></div></div>
-      <div class="field"><span>開演</span><div class="time-chips" data-times="startTime"></div></div>
+      <div class="row2">
+        <div class="field"><span>開場</span><button type="button" class="time-btn" data-time="openTime"></button></div>
+        <div class="field"><span>開演</span><button type="button" class="time-btn" data-time="startTime"></button></div>
+      </div>
     </section>
 
     <section class="card">
@@ -224,38 +228,36 @@ export function render(view, id, params) {
   titleInput.addEventListener('blur', () => setTimeout(() => titleSg.clear(), 150));
 
   /* ----- open / start times ----- */
-  const usualDoors = (() => {
-    const freq = new Map();
-    for (const l of state.lives.values()) if (l.openTime) freq.set(l.openTime, (freq.get(l.openTime) || 0) + 1);
-    const mine = [...freq].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([t]) => t);
-    return [...new Set([...DOOR_TIMES, ...mine])].sort();
-  })();
-
-  const chip = (key, t, label = '') =>
-    `<button type="button" class="tchip ${draft[key] === t ? 'on' : ''}" data-set="${key}" data-v="${t}">${label ? `<small>${label}</small>` : ''}${t}</button>`;
-
-  function timesHtml(key) {
-    const v = draft[key];
-    let chips;
-    if (key === 'openTime') chips = [...new Set([...usualDoors, ...(v ? [v] : [])])].sort().map(t => chip(key, t));
-    else if (draft.openTime) {
-      const offered = START_OFFSETS.map(([min]) => addMinutes(draft.openTime, min));
-      chips = START_OFFSETS.map(([min, label]) => chip(key, addMinutes(draft.openTime, min), label));
-      if (v && !offered.includes(v)) chips.push(chip(key, v));
-    } else chips = [...new Set(['18:00', '18:30', '19:00', '19:30', ...(v ? [v] : [])])].sort().map(t => chip(key, t));
-    const other = `<label class="tchip other">その他<input type="time" data-other="${key}" value="${esc(v)}" aria-label="時刻を指定"></label>`;
-    return chips.join('') + other;
-  }
-
   function drawTimes() {
-    for (const key of ['openTime', 'startTime']) view.querySelector(`[data-times="${key}"]`).innerHTML = timesHtml(key);
+    view.querySelectorAll('[data-time]').forEach(b => {
+      const v = draft[b.dataset.time];
+      b.textContent = v || '未設定';
+      b.classList.toggle('empty', !v);
+    });
   }
 
-  // Tapping the selected time again clears it. Picking doors first fills in "1 hour later"
-  // as the start, which is the most common; one more tap changes it.
-  function setTime(key, v) {
-    draft[key] = draft[key] === v ? '' : v;
-    if (key === 'openTime' && draft.openTime && !draft.startTime) draft.startTime = addMinutes(draft.openTime, 60);
+  async function chooseTime(key) {
+    const open = draft.openTime;
+    const v =
+      key === 'openTime'
+        ? await wheelTime({ title: '開場時間', value: draft.openTime, initial: DOOR_WHEEL_START })
+        : await wheelTime({
+            title: '開演時間',
+            value: draft.startTime,
+            initial: open ? addMinutes(open, SHOW_OFFSET) : '17:00',
+            quick: open
+              ? [
+                  { label: '開場の2時間後', t: addMinutes(open, 120) },
+                  { label: '1時間後', t: addMinutes(open, 60) },
+                ]
+              : [],
+          });
+    if (v === null) return;
+    // Setting doors also sets the show two hours later (it can be changed in one tap).
+    if (key === 'openTime' && v && (!draft.startTime || draft.startTime === addMinutes(draft.openTime || '00:00', SHOW_OFFSET))) {
+      draft.startTime = addMinutes(v, SHOW_OFFSET);
+    }
+    draft[key] = v;
     drawTimes();
     persist();
   }
@@ -415,13 +417,37 @@ export function render(view, id, params) {
         state: !ok ? 'new' : score === 1 ? 'exact' : 'fixed',
       };
     });
+    // Songs that look like `text`, for lines that matched nothing (or while retyping one).
+    const lookalikes = (text, limit) => {
+      const k = songKey(text);
+      const typed = matchKey(text);
+      return all
+        .map(c => ({ c, s: Math.max(similarity(k, c.key), matchScore(typed, c.key) / 4, ...c.aliases.map(a => similarity(k, a))) }))
+        .filter(x => x.s >= 0.25 && x.c.key !== k)
+        .sort((a, b) => b.s - a.s || (b.c.count || 0) - (a.c.count || 0))
+        .slice(0, limit)
+        .map(x => x.c);
+    };
+    rows.forEach(r => (r.hints = r.state === 'new' ? lookalikes(r.raw, 3) : []));
+
+    // Notes and suggestions under a title (redrawn while typing without touching the input,
+    // so Japanese input isn't interrupted).
+    const extraHtml = (r, i) =>
+      `${r.state === 'fixed' ? `<small>読み取り: ${esc(r.raw)}</small>` : ''}
+      ${r.state === 'new' ? `<small class="warn">${fromPhoto ? '一覧にない曲（読み間違いかも）' : '一覧にない曲（新しく登録されます）'}</small>` : ''}
+      ${
+        r.hints.length
+          ? `<div class="rv-hints"><span>${r.state === 'new' ? 'もしかして' : '候補'}</span>${r.hints
+              .map((c, j) => `<button type="button" class="chip" data-hint="${i}:${j}">${songArt(c, 'xs')}${esc(c.title)}</button>`)
+              .join('')}</div>`
+          : ''
+      }`;
     const rowHtml = (r, i) =>
       r.kind === 'en'
-        ? `<label class="rv-row enc"><input type="checkbox" data-on="${i}" ${r.on ? 'checked' : ''}><span>ENCORE</span></label>`
-        : `<label class="rv-row"><input type="checkbox" data-on="${i}" ${r.on ? 'checked' : ''}>${songArt(r, 'xs')}
-            <span class="rv-main"><input class="rv-title" data-t="${i}" value="${esc(r.title)}">
-            ${r.state === 'fixed' ? `<small>読み取り: ${esc(r.raw)}</small>` : ''}
-            ${r.state === 'new' ? `<small class="warn">${fromPhoto ? '一覧にない曲（読み間違いかも。必要ならチェック）' : '一覧にない曲（新しく登録されます）'}</small>` : ''}</span></label>`;
+        ? `<label class="rv-row enc" data-row="${i}"><input type="checkbox" data-on="${i}" ${r.on ? 'checked' : ''}><span>ENCORE</span></label>`
+        : `<div class="rv-row" data-row="${i}"><input type="checkbox" data-on="${i}" ${r.on ? 'checked' : ''}><span class="rv-art">${songArt(r, 'xs')}</span>
+            <div class="rv-main"><input class="rv-title" data-t="${i}" value="${esc(r.title)}" autocomplete="off">
+            <div class="rv-extra">${extraHtml(r, i)}</div></div></div>`;
     const hasSongs = draft.setlist.length > 0;
     const picked = await openSheet({
       title,
@@ -431,15 +457,36 @@ export function render(view, id, params) {
         ${hasSongs ? `<div class="chips mode"><label class="chip"><input type="radio" name="mode" value="append" checked> 後ろに追加</label><label class="chip"><input type="radio" name="mode" value="replace"> 置き換える</label></div>` : ''}
         <button type="button" class="wide primary" data-ok>追加する</button>`,
       onMount(sheet, close) {
+        const redrawRow = i => {
+          const el = sheet.querySelector(`[data-row="${i}"]`);
+          el.querySelector('.rv-art').innerHTML = songArt(rows[i], 'xs');
+          el.querySelector('.rv-extra').innerHTML = extraHtml(rows[i], i);
+          el.querySelector('[data-on]').checked = rows[i].on;
+          const input = el.querySelector('.rv-title');
+          if (input.value !== rows[i].title) input.value = rows[i].title;
+        };
         sheet.addEventListener('change', e => {
           if (e.target.dataset.on != null) rows[Number(e.target.dataset.on)].on = e.target.checked;
         });
         sheet.addEventListener('input', e => {
           if (e.target.dataset.t == null) return;
-          const r = rows[Number(e.target.dataset.t)];
+          const i = Number(e.target.dataset.t);
+          const r = rows[i];
           r.title = e.target.value;
           const hit = all.find(c => c.key === songKey(r.title) || c.aliases.includes(songKey(r.title)));
-          Object.assign(r, hit ? { songId: hit.songId || null, artistId: hit.artistId, artwork: hit.artwork || '' } : { songId: null, artwork: '' });
+          Object.assign(r, hit ? { songId: hit.songId || null, artistId: hit.artistId, artwork: hit.artwork || '', state: 'exact' } : { songId: null, artwork: '', state: 'new' });
+          r.hints = hit || !r.title.trim() ? [] : lookalikes(r.title, 4);
+          redrawRow(i);
+        });
+        // Picking a suggestion fills the row with that song and ticks it.
+        sheet.addEventListener('pointerdown', e => e.target.closest('[data-hint]') && e.preventDefault());
+        sheet.addEventListener('click', e => {
+          const b = e.target.closest('[data-hint]');
+          if (!b) return;
+          const [i, j] = b.dataset.hint.split(':').map(Number);
+          const c = rows[i].hints[j];
+          Object.assign(rows[i], { title: c.title, songId: c.songId || null, artistId: c.artistId, artwork: c.artwork || '', state: 'exact', hints: [], on: true });
+          redrawRow(i);
         });
         sheet.querySelector('[data-ok]').addEventListener('click', () =>
           close({ rows: rows.filter(r => r.on && (r.kind === 'en' || r.title.trim())), replace: sheet.querySelector('[name=mode]:checked')?.value === 'replace' }),
@@ -593,7 +640,7 @@ export function render(view, id, params) {
     if (JSON.stringify(draft) !== initial && !confirm('変更を破棄しますか？')) return;
     for (const pid of draft.addedPhotos) await deletePhoto(pid);
     closeDraft();
-    goBack(existing ? `#/live/${existing.id}` : draft.artistIds[0] ? `#/artist/${draft.artistIds[0]}` : '#/');
+    goBack(existing ? `#/live/${existing.id}` : source ? `#/live/${source.id}` : draft.artistIds[0] ? `#/artist/${draft.artistIds[0]}` : '#/');
   }
 
   /* ----- events ----- */
@@ -603,14 +650,6 @@ export function render(view, id, params) {
     else if (t.dataset.exa != null) draft.expenses[Number(t.dataset.exa)].amount = t.value;
     else if (t.dataset.exc != null) draft.expenses[Number(t.dataset.exc)].category = t.value;
     else if (t.matches('[data-phadd]') && e.type === 'change') return addPhoto(t.files[0]);
-    else if (t.dataset.other) {
-      if (e.type === 'change' && t.value) {
-        draft[t.dataset.other] = t.value;
-        drawTimes();
-        persist();
-      }
-      return;
-    }
     else if (t.id === 'ocr-file' && e.type === 'change') {
       if (t.files[0]) readPhoto(t.files[0]);
       t.value = '';
@@ -652,7 +691,7 @@ export function render(view, id, params) {
     } else if (d.type) {
       draft.type = d.type;
       drawType();
-    } else if (d.set) return setTime(d.set, d.v);
+    } else if (d.time) return chooseTime(d.time);
     else if (d.mv) {
       const i = Number(d.i);
       const j = i + Number(d.mv);

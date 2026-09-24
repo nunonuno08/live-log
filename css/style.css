@@ -75,6 +75,8 @@ button:disabled { opacity: 0.25; }
   background: var(--surface); box-shadow: var(--shadow); display: grid; place-items: center;
 }
 .more { display: block; text-align: center; color: var(--accent); font-size: 13px; padding-top: 10px; font-weight: 600; }
+.btn-row { display: flex; gap: 8px; margin-top: 12px; }
+.btn-row > * { flex: 1; padding-top: 13px; padding-bottom: 13px; }
 
 input, select, textarea {
   font: inherit; font-size: 16px; color: var(--text); background: var(--surface2);
@@ -252,16 +254,21 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* ---------- editor ---------- */
-.time-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 6px; }
-.tchip {
-  position: relative; min-height: 50px; padding: 6px 4px; border-radius: 12px; background: var(--surface2);
-  font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15;
+/* ---------- time picker ---------- */
+.time-btn { width: 100%; justify-content: flex-start; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; min-height: 52px; }
+.time-btn.empty { font-size: 15px; font-weight: 500; color: var(--muted); }
+.quick-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.quick-row .chip { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
+.wheel-wrap { position: relative; isolation: isolate; display: flex; justify-content: center; align-items: center; gap: 6px; height: 220px; margin: 6px 0 18px; }
+.wheel-band { position: absolute; z-index: -1; left: 50%; top: 50%; width: 230px; height: 44px; transform: translate(-50%, -50%); border-radius: 12px; background: var(--surface2); }
+.wheel {
+  height: 220px; width: 92px; overflow-y: scroll; scroll-snap-type: y mandatory; padding: 88px 0; scrollbar-width: none; overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent);
 }
-.tchip.on { background: var(--accent); color: var(--accent-ink); }
-.tchip small { font-size: 10px; font-weight: 700; opacity: 0.75; }
-.tchip.other { color: var(--muted); font-weight: 600; font-size: 13px; cursor: pointer; }
-/* The real time input covers the chip so a tap opens the phone's own picker. */
-.tchip.other input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; padding: 0; border: 0; }
+.wheel::-webkit-scrollbar { display: none; }
+.wheel div { height: 44px; line-height: 44px; text-align: center; font-size: 24px; font-weight: 600; color: var(--muted); scroll-snap-align: center; font-variant-numeric: tabular-nums; cursor: pointer; }
+.wheel div.on { color: var(--text); font-size: 30px; font-weight: 800; }
+.wheel-colon { font-size: 30px; font-weight: 800; }
 
 .crop-stage { display: flex; justify-content: center; margin: 8px 0 14px; }
 .crop-wrap { position: relative; display: inline-block; touch-action: none; user-select: none; -webkit-user-select: none; line-height: 0; }
@@ -466,3 +473,10 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .top-song b { font-size: 13px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
 .top-song > span:last-child { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rk.top { color: var(--accent); }
+
+/* review: suggestions for lines that matched no known song */
+.rv-row { align-items: flex-start; }
+.rv-row > input[type="checkbox"], .rv-art { margin-top: 8px; }
+.rv-hints { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.rv-hints > span { font-size: 11px; font-weight: 700; color: var(--muted); }
+.rv-hints .chip { padding: 3px 10px 3px 3px; font-size: 13px; background: var(--surface); border: 1px solid var(--line); font-weight: 600; }
