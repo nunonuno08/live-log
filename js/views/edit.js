@@ -203,7 +203,7 @@ export function render(view, id, params) {
       const tours = (await Promise.all(draft.artistIds.map(aid => toursFor(aid).catch(() => [])))).flat();
       const items = [
         ...[...mine.values()].map(m => ({ ...m, sub: `記録済み ${m.count}回` })),
-        ...tours.filter(t => !mine.has(matchKey(t.title))).map(t => ({ ...t, sub: t.year ? `${t.year}年` : '' })),
+        ...tours.filter(t => !mine.has(matchKey(t.title))).map(t => ({ ...t, sub: `Wikipedia${t.year ? `・${t.year}年` : ''}` })),
       ];
       const near = it => (it.year === year ? 3 : it.year && Math.abs(it.year - year) === 1 ? 1 : 0);
       return items
