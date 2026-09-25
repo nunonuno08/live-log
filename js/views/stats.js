@@ -1,6 +1,6 @@
 import { state, allLives, isPast, songIdsOf, songTable, artistName, venueName, hydratePhotos } from '../store.js';
 import { esc, yen, today, matchKey, daysUntil } from '../util.js';
-import { avatar, liveRow, countBy, songArt } from '../components.js';
+import { avatar, liveRow, countBy, songArt, artistColor } from '../components.js';
 import { artworkAt } from '../music.js';
 
 const TABS = [
@@ -13,7 +13,6 @@ const TABS = [
 
 // Chart colours (fixed, readable on both light and dark backgrounds).
 const COLORS = ['#e2462b', '#f0a02c', '#2a9d8f', '#3d7be0', '#8b5cf6', '#e0529a', '#5aa84a'];
-const OTHER = '#a9a398';
 
 // Kept across visits.
 let tab = 'overview';
@@ -105,47 +104,68 @@ function spendOf(lives) {
 
 /* ---------- overview ---------- */
 
-/** Donut of lives per artist, with each artist's photo placed next to their slice. */
-function ringHtml(ranking, liveCount) {
-  const total = ranking.reduce((s, [, c]) => s + c, 0);
-  const segs = ranking.slice(0, COLORS.length).map(([id, c], i) => ({ id, c, color: COLORS[i] }));
-  const rest = total - segs.reduce((s, x) => s + x.c, 0);
-  if (rest) segs.push({ id: null, c: rest, color: OTHER });
-  const SIZE = 280;
-  const MID = SIZE / 2;
-  const R = 86;
-  const C = 2 * Math.PI * R;
-  const gap = segs.length > 1 ? 4 : 0;
-  let acc = 0;
-  let arcs = '';
-  let faces = '';
-  for (const s of segs) {
-    const len = (s.c / total) * C;
-    arcs += `<circle cx="${MID}" cy="${MID}" r="${R}" fill="none" stroke="${s.color}" stroke-width="22"
-      stroke-dasharray="${Math.max(len - gap, 0.5)} ${C}" stroke-dashoffset="${-acc}" transform="rotate(-90 ${MID} ${MID})"/>`;
-    if (s.id && s.c / total >= 0.05) {
-      const angle = ((acc + len / 2) / C) * 2 * Math.PI - Math.PI / 2;
-      const x = ((MID + 118 * Math.cos(angle)) / SIZE) * 100;
-      const y = ((MID + 118 * Math.sin(angle)) / SIZE) * 100;
-      faces += `<a class="ring-face" href="#/artist/${s.id}" style="left:${x}%;top:${y}%;--c:${s.color}">${avatar(state.artists.get(s.id), 'sm')}</a>`;
+/**
+ * Packs circles (largest first) as close to the middle as they fit, each one touching one
+ * already placed. Slightly favours spreading sideways, since the card is wider than tall.
+ */
+function packCircles(radii) {
+  const GAP = 0.1;
+  const placed = [];
+  for (const r of radii) {
+    if (!placed.length) {
+      placed.push({ x: 0, y: 0, r });
+      continue;
     }
-    acc += len;
+    let best = null;
+    for (const p of placed) {
+      for (let k = 0; k < 36; k++) {
+        const a = (k / 36) * 2 * Math.PI;
+        const x = p.x + (p.r + r + GAP) * Math.cos(a);
+        const y = p.y + (p.r + r + GAP) * Math.sin(a);
+        const score = x * x + (y * 1.3) ** 2;
+        if (best && score >= best.score) continue;
+        if (placed.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < (q.r + r + GAP) ** 2 - 1e-6)) continue;
+        best = { x, y, r, score };
+      }
+    }
+    placed.push(best);
   }
-  return `<section class="card ring-card">
-    <div class="ring">
-      <svg viewBox="0 0 ${SIZE} ${SIZE}" aria-hidden="true">${arcs}</svg>
-      ${faces}
-      <div class="ring-center"><small>TOTAL</small><b>${liveCount}</b><span>本のライブ · ${ranking.length}組</span></div>
-    </div>
-    <div class="legend">${segs
-      .map(s => `<span><i style="background:${s.color}"></i>${esc(s.id ? artistName(s.id) : 'その他')} <b>${s.c}</b></span>`)
-      .join('')}</div>
+  return placed;
+}
+
+/** One bubble per artist, its area proportional to the number of lives; every artist is shown. */
+function bubblesHtml(ranking, liveCount) {
+  const circles = packCircles(ranking.map(([, c]) => Math.sqrt(c)));
+  const minX = Math.min(...circles.map(c => c.x - c.r));
+  const maxX = Math.max(...circles.map(c => c.x + c.r));
+  const minY = Math.min(...circles.map(c => c.y - c.r));
+  const maxY = Math.max(...circles.map(c => c.y + c.r));
+  // With only a few artists, keep the biggest bubble from filling the whole card.
+  const W = Math.max(maxX - minX, (circles[0].r * 2) / 0.5);
+  const H = maxY - minY;
+  const offX = (W - (maxX - minX)) / 2 - minX;
+  const bubbles = ranking
+    .map(([id, c], i) => {
+      const b = circles[i];
+      const d = ((b.r * 2) / W) * 100; // diameter, % of the card width
+      const cls = d >= 24 ? 'big' : '';
+      const label = cls ? `<span class="b-label"><b>${esc(artistName(id))}</b><small>${c}本</small></span>` : d >= 12 && c > 1 ? `<em>${c}</em>` : '';
+      return `<a class="bubble ${cls}" href="#/artist/${id}" aria-label="${esc(artistName(id))} ${c}本"
+        style="left:${((b.x - b.r + offX) / W) * 100}%;top:${((b.y - b.r - minY) / H) * 100}%;width:${d}%;--d:${d};--c:${artistColor(id)}">
+        ${avatar(state.artists.get(id))}${label}</a>`;
+    })
+    .join('');
+  return `<section class="card bub-card">
+    <div class="bub-head"><small>TOTAL</small><b>${liveCount}</b><span>本のライブ · ${ranking.length}組のアーティスト</span></div>
+    <div class="bubbles" style="aspect-ratio:${W} / ${H}">${bubbles}</div>
   </section>`;
 }
 
 function overview(lives) {
   if (!lives.length) return empty;
-  const ranking = countBy(lives.flatMap(l => l.artistIds), id => id);
+  // Equal counts: the artist seen most recently first.
+  const last = new Map(lives.flatMap(l => l.artistIds.map(id => [id, l.date])));
+  const ranking = countBy(lives.flatMap(l => l.artistIds), id => id).sort((a, b) => b[1] - a[1] || last.get(b[0]).localeCompare(last.get(a[0])));
   const topSong = songTable(lives)[0];
   const topVenue = countBy(lives, l => l.venueId)[0];
   const heard = lives.flatMap(songIdsOf);
@@ -173,7 +193,7 @@ function overview(lives) {
   ].join('');
 
   return `
-    ${ringHtml(ranking, lives.length)}
+    ${bubblesHtml(ranking, lives.length)}
     <div class="hl-grid">${highlights}</div>
     <div class="kpis">
       ${kpi('聴いた曲（延べ）', heard.length, '曲')}${kpi('曲の種類', new Set(heard).size, '曲')}${kpi('会場', new Set(lives.map(l => l.venueId).filter(Boolean)).size, 'か所')}

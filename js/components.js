@@ -19,6 +19,20 @@ export function songArt(song, cls = '') {
     : `<span class="art ${cls} none">♪</span>`;
 }
 
+/**
+ * Each artist's own colour, the same on every screen and device (derived from the id, so
+ * renaming keeps it). 12 hues spaced apart so neighbours stay distinguishable.
+ */
+export const artistColor = id => `hsl(${(hue(id) % 12) * 30 + 8} 68% 56%)`;
+
+/** Vertical colour strip for a live: one band per artist (up to 4). */
+export function artistStripe(l) {
+  const ids = l.artistIds.slice(0, 4);
+  if (!ids.length) return 'var(--line)';
+  const step = 100 / ids.length;
+  return `linear-gradient(${ids.map((id, i) => `${artistColor(id)} ${i * step}% ${(i + 1) * step}%`).join(', ')})`;
+}
+
 /** A live as a ticket stub. */
 export function liveRow(l) {
   const [y, m, d] = l.date.split('-');
@@ -28,7 +42,8 @@ export function liveRow(l) {
   const artists = l.artistIds.map(artistName).join(' / ');
   const venue = venueName(l.venueId);
   const sub = [l.title?.trim() ? artists : '', venue].filter(Boolean).join(' · ');
-  return `<a class="ticket ${isPast(l) ? '' : 'upcoming'}" href="#/live/${l.id}">
+  const color = l.artistIds[0] ? artistColor(l.artistIds[0]) : 'var(--muted)';
+  return `<a class="ticket ${isPast(l) ? '' : 'upcoming'}" href="#/live/${l.id}" style="--ac:${color};--stripe:${artistStripe(l)}">
     <div class="t-date"><span class="t-y">${y}</span><b>${+m}.${+d}</b><span class="t-w">${weekday(l.date)}</span></div>
     <div class="t-body">
       <div class="t-title">${esc(liveTitle(l))}</div>

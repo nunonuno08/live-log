@@ -9,7 +9,7 @@ const ITUNES = 'https://itunes.apple.com';
 const CATALOG_MAX_AGE = 30 * 86400000;
 // Bump when song-title cleaning changes so cached song lists are rebuilt.
 const CATALOG_VERSION = 3;
-const TOURS_VERSION = 5;
+const TOURS_VERSION = 6;
 
 async function getJson(url, signal) {
   const res = await fetch(url, { signal });
@@ -22,15 +22,38 @@ export const artworkAt = (url, size) => (url ? url.replace(/\/\d+x\d+bb\./, `/${
 
 export async function searchArtists(term, signal) {
   const j = await getJson(`${ITUNES}/search?term=${encodeURIComponent(term)}&entity=musicArtist&country=JP&lang=ja_jp&limit=8`, signal);
-  return j.results.map(a => ({ itunesId: a.artistId, name: a.artistName, genre: a.primaryGenreName || '' }));
+  const found = j.results.map(a => ({ itunesId: a.artistId, name: a.artistName, altName: '', genre: a.primaryGenreName || '' }));
+  if (!found.length) return found;
+  // The artist entry is sometimes in romaji ("HARUKAMIRAI") while the songs carry the real
+  // name ("ハルカミライ"); use the name most of their songs are credited to.
+  try {
+    const songs = await getJson(`${ITUNES}/lookup?id=${found.map(r => r.itunesId).join(',')}&entity=song&limit=5&country=JP&lang=ja_jp`, signal);
+    const names = new Map();
+    for (const t of songs.results) {
+      if (t.wrapperType !== 'track' || !t.artistName) continue;
+      const m = names.get(t.artistId) || new Map();
+      m.set(t.artistName, (m.get(t.artistName) || 0) + 1);
+      names.set(t.artistId, m);
+    }
+    for (const r of found) {
+      const best = [...(names.get(r.itunesId) || [])].sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (best && best !== r.name) [r.altName, r.name] = [r.name, best];
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+  }
+  return found;
 }
+
+const cacheFresh = (cached, version, artist) =>
+  cached && cached.version === version && cached.name === artist.name && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE;
 
 /** Song list of an artist (deduplicated so single/album versions are one entry). Cached for 30 days. */
 export async function catalogFor(artistId, { refresh = false } = {}) {
   const artist = state.artists.get(artistId);
   if (!artist?.itunesId) return [];
   const cached = await getCatalog(artistId).catch(() => null);
-  if (cached && !refresh && cached.version === CATALOG_VERSION && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
+  if (!refresh && cacheFresh(cached, CATALOG_VERSION, artist)) return cached.items;
   if (!navigator.onLine) return cached?.items || [];
   try {
     const [byId, byName] = await Promise.all([
@@ -48,7 +71,7 @@ export async function catalogFor(artistId, { refresh = false } = {}) {
       else if (title.length < prev.title.length) prev.title = title;
     }
     const items = [...byKey.values()];
-    await putCatalog(artistId, items, CATALOG_VERSION);
+    await putCatalog(artistId, items, CATALOG_VERSION, artist.name);
     return items;
   } catch {
     return cached?.items || [];
@@ -69,7 +92,9 @@ async function wikiText(title) {
 
 // Finds the artist's article and makes sure it is about a musician.
 async function artistWikiText(name) {
-  const isMusician = t => /Infobox[ _]Musician|Infobox[ _]音楽|アーティスト|バンド|歌手/.test(t.slice(0, 3000));
+  // Disambiguation pages ("ハルカミライ" → band / song) mention "バンド" too; skip them.
+  const isMusician = t =>
+    !/\{\{\s*(Aimai|曖昧さ回避|Disambig)/i.test(t) && /Infobox[ _]Musician|Infobox[ _]音楽|アーティスト|バンド|歌手/.test(t.slice(0, 3000));
   const direct = await wikiText(name).catch(() => '');
   if (direct && isMusician(direct)) return direct;
   const j = await getJson(`${WIKI}&action=query&list=search&srlimit=3&srsearch=${encodeURIComponent(name)}`);
@@ -251,11 +276,11 @@ export async function toursFor(artistId) {
   if (!artist) return [];
   const cacheId = `tours:${artistId}`;
   const cached = await getCatalog(cacheId).catch(() => null);
-  if (cached && cached.version === TOURS_VERSION && Date.now() - cached.fetchedAt < CATALOG_MAX_AGE) return cached.items;
+  if (cacheFresh(cached, TOURS_VERSION, artist)) return cached.items;
   if (!navigator.onLine) return cached?.items || [];
   try {
     const items = extractTours(await artistWikiText(artist.name));
-    await putCatalog(cacheId, items, TOURS_VERSION);
+    await putCatalog(cacheId, items, TOURS_VERSION, artist.name);
     return items;
   } catch {
     return cached?.items || [];
@@ -276,11 +301,12 @@ export async function artistPictures(results) {
     const albums = getJson(`${ITUNES}/lookup?id=${todo.map(r => r.itunesId).join(',')}&entity=album&limit=1&country=JP`)
       .then(j => new Map(j.results.filter(x => x.wrapperType === 'collection').map(x => [x.artistId, x.artworkUrl100])))
       .catch(() => new Map());
-    const photos = await Promise.all(todo.map(r => deezerSearch(r.name, 3)));
+    // Deezer often lists Japanese artists in romaji, so the iTunes romaji name is tried too.
+    const photos = await Promise.all(todo.map(r => deezerSearch(r.altName || r.name, 3)));
     const jackets = await albums;
     todo.forEach((r, i) => {
-      const k = matchKey(r.name);
-      const hit = photos[i].find(a => matchKey(a.name) === k);
+      const keys = [r.name, r.altName].filter(Boolean).map(matchKey);
+      const hit = photos[i].find(a => keys.includes(matchKey(a.name)));
       const jacket = jackets.get(r.itunesId);
       pictureCache.set(
         r.itunesId,

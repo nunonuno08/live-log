@@ -407,7 +407,8 @@ export const allPhotos = () => db.getAll('photos');
 /* ---------- catalogs (cached iTunes song lists) ---------- */
 
 export const getCatalog = artistId => db.get('catalogs', artistId);
-export const putCatalog = (artistId, items, version = 1) => db.put('catalogs', { id: artistId, fetchedAt: Date.now(), items, version });
+// `name` is the artist name the list was fetched with; a renamed artist gets a fresh list.
+export const putCatalog = (artistId, items, version = 1, name = '') => db.put('catalogs', { id: artistId, fetchedAt: Date.now(), items, version, name });
 
 /* ---------- backup ---------- */
 
