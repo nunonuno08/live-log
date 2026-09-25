@@ -8,6 +8,9 @@ import { avatar } from './components.js';
 
 /** Opens a sheet; resolves with the value passed to `close(value)` (null when dismissed). */
 export function openSheet({ title, html, onMount, tall = false }) {
+  // Close the keyboard first: iOS misjudges the screen height for a sheet opened while (or
+  // right after) it is up, pushing the bottom of the sheet off screen.
+  document.activeElement?.blur?.();
   return new Promise(resolve => {
     const ov = document.createElement('div');
     ov.className = 'sheet-backdrop';

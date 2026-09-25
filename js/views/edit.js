@@ -6,10 +6,10 @@ import { TYPES, EXPENSE_CATS, avatar, songArt, notFound } from '../components.js
 import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js';
 import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
 import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
+import { goBack, replace } from '../nav.js';
 
 // The show usually starts two hours after doors open.
 const SHOW_OFFSET = 120;
-import { goBack, replace } from '../nav.js';
 
 // The form is mirrored to localStorage while editing: iOS may reload the app when you
 // switch to Photos to copy a setlist, and the draft brings you back where you were.
@@ -403,6 +403,9 @@ export function render(view, id, params) {
   function drawSetlist() {
     const multi = draft.artistIds.length > 1;
     let n = 0;
+    const perArtist = new Map();
+    let total = 0;
+    let current = null;
     $('#sl-list').innerHTML = draft.setlist
       .map((it, i) => {
         const ops = `<span class="ops">
@@ -410,12 +413,22 @@ export function render(view, id, params) {
           <button type="button" data-mv="1" data-i="${i}" ${i === draft.setlist.length - 1 ? 'disabled' : ''} aria-label="下へ">↓</button>
           <button type="button" data-del="${i}" aria-label="削除">✕</button></span>`;
         if (it.kind === 'en') return `<li class="sl-row encore"><span class="enc">ENCORE</span>${ops}</li>`;
+        // Several artists: a heading where the artist changes, numbering per artist.
+        let head = '';
+        if (multi && it.artistId !== current) {
+          current = it.artistId;
+          n = perArtist.get(current) || 0;
+          head = `<li class="sl-group">${avatar(state.artists.get(it.artistId), 'xs')}<b>${esc(artistName(it.artistId))}</b></li>`;
+        }
         n++;
-        return `<li class="sl-row"><span class="no">${n}</span>${songArt(it, 'xs')}
-          <span class="t">${esc(it.title)}${multi ? `<small>${esc(artistName(it.artistId))}</small>` : ''}</span>${ops}</li>`;
+        perArtist.set(current, n);
+        total++;
+        return `${head}<li class="sl-row"><span class="no">${n}</span>${songArt(it, 'xs')}
+          <span class="t">${esc(it.title)}</span>${ops}</li>`;
       })
       .join('');
-    $('#sl-count').textContent = n ? `${n}曲` : '';
+    hydratePhotos($('#sl-list'));
+    $('#sl-count').textContent = total ? `${total}曲` : '';
   }
 
   /* ----- paste / photo → review ----- */

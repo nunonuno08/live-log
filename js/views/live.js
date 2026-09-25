@@ -18,19 +18,31 @@ export function render(view, id, params = new URLSearchParams()) {
   const main = state.artists.get(l.artistIds[0]);
   const heroPhoto = l.photoIds?.[0] || main?.photoId;
 
+  // With several artists (対バン・フェス), each artist's part gets a heading and its own numbering.
   let n = 0;
+  const perArtist = new Map(); // each artist keeps counting after an encore
+  let songTotal = 0;
   let firstTimers = 0;
+  let current = null;
   const setlist = (l.setlist || [])
     .map((it, i) => {
       if (it.kind === 'en') return '<li class="encore"><span>ENCORE</span></li>';
       const song = state.songs.get(it.songId);
       if (!song) return '';
+      let head = '';
+      if (multi && song.artistId !== current) {
+        current = song.artistId;
+        n = perArtist.get(current) || 0;
+        head = `<li class="sl-group"><a href="#/artist/${song.artistId}">${avatar(state.artists.get(song.artistId), 'sm')}<b>${esc(artistName(song.artistId))}</b></a></li>`;
+      }
       n++;
+      perArtist.set(current, n);
+      songTotal++;
       const c = counts[i];
       if (past && c === 1) firstTimers++;
       const badge = !past ? '' : c === 1 ? '<span class="badge new">初</span>' : `<span class="cnt">${c}回目</span>`;
-      return `<li><span class="no">${n}</span>${songArt(song, 'sm')}
-        <a class="t" href="#/song/${song.id}">${esc(song.title)}${multi ? `<small>${esc(artistName(song.artistId))}</small>` : ''}</a>
+      return `${head}<li><span class="no">${n}</span>${songArt(song, 'sm')}
+        <a class="t" href="#/song/${song.id}">${esc(song.title)}</a>
         ${badge}
         <a class="sp-link" href="${esc(spotifySearchUrl(song.title, artistName(song.artistId)))}" target="_blank" rel="noopener" aria-label="Spotifyで開く">${SPOTIFY_ICON}</a></li>`;
     })
@@ -64,9 +76,9 @@ export function render(view, id, params = new URLSearchParams()) {
     </div>
 
     <section class="card">
-      <h2>セットリスト <span class="muted small">${n ? `${n}曲` : ''}${firstTimers ? ` · 初めて聴いた曲 ${firstTimers}` : ''}</span></h2>
+      <h2>セットリスト <span class="muted small">${songTotal ? `${songTotal}曲` : ''}${firstTimers ? ` · 初めて聴いた曲 ${firstTimers}` : ''}</span></h2>
       ${setlist ? `<ol class="setlist">${setlist}</ol>` : '<p class="muted small">未登録です。右上の ✎ から追加できます。</p>'}
-      ${n && spotifyAvailable() ? `<button class="wide spotify-btn" data-act="playlist">${SPOTIFY_ICON}Spotify でプレイリストを作る</button>` : ''}
+      ${songTotal && spotifyAvailable() ? `<button class="wide spotify-btn" data-act="playlist">${SPOTIFY_ICON}Spotify でプレイリストを作る</button>` : ''}
     </section>
 
     ${

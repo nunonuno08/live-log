@@ -106,11 +106,25 @@ export async function liveCard(live) {
   // Setlist.
   const counts = playCounts().get(live.id) || [];
   const past = isPast(live);
+  // Several artists: a heading where the artist changes; each artist has its own numbering.
+  const multi = live.artistIds.length > 1;
   const rows = [];
   let n = 0;
+  const perArtist = new Map();
+  let total = 0;
+  let current = null;
   (live.setlist || []).forEach((it, i) => {
-    if (it.kind === 'en') rows.push({ encore: true });
-    else if (state.songs.has(it.songId)) rows.push({ no: ++n, title: state.songs.get(it.songId).title, first: past && counts[i] === 1 });
+    if (it.kind === 'en') return rows.push({ encore: true });
+    const song = state.songs.get(it.songId);
+    if (!song) return;
+    if (multi && song.artistId !== current) {
+      current = song.artistId;
+      n = perArtist.get(current) || 0;
+      rows.push({ group: artistName(song.artistId) });
+    }
+    total++;
+    rows.push({ no: ++n, title: song.title, first: past && counts[i] === 1 });
+    perArtist.set(current, n);
   });
 
   y += 70;
@@ -139,6 +153,12 @@ export async function liveCard(live) {
       ctx.fillText('— ENCORE —', x, ry);
       return;
     }
+    if (r.group) {
+      ctx.fillStyle = ACCENT;
+      ctx.font = font(900, size * 0.78);
+      ctx.fillText(fit(ctx, r.group, colW), x, ry);
+      return;
+    }
     ctx.fillStyle = MUTED;
     ctx.font = font(800, size * 0.8);
     const no = String(r.no).padStart(2, '0');
@@ -161,7 +181,7 @@ export async function liveCard(live) {
   const firsts = rows.filter(r => r.first).length;
   ctx.fillStyle = MUTED;
   ctx.font = font(700, 28);
-  ctx.fillText(`${n}曲${firsts ? `  ·  初めて聴いた曲 ${firsts}` : ''}`, PAD, H - 80);
+  ctx.fillText(`${total}曲${firsts ? `  ·  初めて聴いた曲 ${firsts}` : ''}`, PAD, H - 80);
   ctx.textAlign = 'right';
   ctx.fillStyle = ACCENT;
   ctx.font = font(900, 28);
