@@ -285,6 +285,53 @@ export async function mergeVenue(fromId, toId) {
   await db.del('venues', fromId);
 }
 
+/* ---------- duplicates from other devices ---------- */
+
+const byAge = (a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.id.localeCompare(b.id);
+const sameKey = (a, b) => a.key === b.key || !!a.aliases?.includes(b.key) || !!b.aliases?.includes(a.key);
+
+/**
+ * An artist, song or venue registered on two devices before they synced arrives twice.
+ * Each is merged into the oldest one; the order is fixed, so every device ends up the same.
+ * Returns how many were merged.
+ */
+export async function mergeDuplicates() {
+  let merged = 0;
+  const artists = [];
+  for (const a of [...state.artists.values()].sort(byAge)) {
+    // Different iTunes ids are different artists, even with the same name.
+    const twin = artists.find(b => (a.itunesId && b.itunesId ? a.itunesId === b.itunesId : matchKey(a.name) === matchKey(b.name)));
+    if (!twin) {
+      artists.push(a);
+      continue;
+    }
+    await mergeArtist(a.id, twin.id);
+    merged++;
+  }
+  const songs = new Map();
+  for (const s of [...state.songs.values()].sort(byAge)) {
+    const kept = songs.get(s.artistId) || [];
+    const twin = kept.find(t => sameKey(s, t));
+    if (!twin) {
+      songs.set(s.artistId, [...kept, s]);
+      continue;
+    }
+    await mergeSong(s.id, twin.id);
+    merged++;
+  }
+  const venues = [];
+  for (const v of [...state.venues.values()].sort(byAge)) {
+    const twin = venues.find(t => sameKey(v, t));
+    if (!twin) {
+      venues.push(v);
+      continue;
+    }
+    await mergeVenue(v.id, twin.id);
+    merged++;
+  }
+  return merged;
+}
+
 /* ---------- lives ---------- */
 
 export async function saveLive(live) {

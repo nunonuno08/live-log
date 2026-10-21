@@ -3,7 +3,7 @@
 // of a record wins. Photos go to a private storage folder per account.
 import {
   state, RECORD_STORES, changes, readTombs, writeTombs, applyRemote, removeRemote,
-  putRemotePhoto, hasPhoto, getPhotoBlob, referencedPhotoIds, FORCE_PUSH_KEY,
+  putRemotePhoto, hasPhoto, getPhotoBlob, referencedPhotoIds, FORCE_PUSH_KEY, mergeDuplicates,
 } from './store.js';
 import { debounce } from './util.js';
 
@@ -64,6 +64,16 @@ const writeJson = (key, value) => {
   } catch {}
 };
 
+/** Changes made on this phone that the cloud doesn't have yet (edits and deletions). */
+export function pendingCount() {
+  const { lastPush = 0 } = readJson(META_KEY, {});
+  let n = readTombs().length;
+  for (const kind of RECORD_STORES) {
+    for (const r of state[kind].values()) if ((r.updatedAt || 1) > lastPush) n++;
+  }
+  return n;
+}
+
 /* ---------- account ---------- */
 
 const MESSAGES = [
@@ -73,9 +83,13 @@ const MESSAGES = [
   [/signups not allowed|signup is disabled/i, '現在、新しい登録は受け付けていません'],
   [/invalid email|unable to validate email/i, 'メールアドレスの形式が正しくありません'],
   [/rate limit/i, '短時間に何度も試したため、しばらく待ってからもう一度お試しください'],
-  [/failed to fetch|network/i, 'ネットに接続できません'],
+  // Safari says "Load failed". Online but unreachable usually means the server is paused.
+  [/failed to fetch|load failed|network/i, () => (navigator.onLine ? 'クラウドにつながりません（サーバーが止まっている可能性があります）' : 'ネットに接続できません')],
 ];
-const friendly = err => MESSAGES.find(([re]) => re.test(err?.message || ''))?.[1] || err?.message || 'エラーが発生しました';
+const friendly = err => {
+  const msg = MESSAGES.find(([re]) => re.test(err?.message || ''))?.[1];
+  return (typeof msg === 'function' ? msg() : msg) || err?.message || 'エラーが発生しました';
+};
 
 export async function signUp(email, password) {
   const sb = await client();
@@ -239,6 +253,9 @@ async function run() {
   if (force) localStorage.removeItem(FORCE_PUSH_KEY);
   setStatus({ state: 'idle', lastSync: meta.lastSync, error: '' });
 
+  // Something registered here and on another device before they synced is now here twice.
+  // Merging after the sync is saved: the merges are new changes and go up with the next one.
+  if (received) received += await mergeDuplicates();
   if (received) statusEvents.dispatchEvent(new CustomEvent('received', { detail: received }));
 }
 

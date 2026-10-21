@@ -1,32 +1,58 @@
 import { state, photoCount, allPhotos, replaceAll } from '../store.js';
 import { esc, toast, today, blobToDataUrl, shareOrDownload, getTheme, setTheme } from '../util.js';
-import { status, statusEvents, signIn, signUp, signOut, syncNow } from '../sync.js';
+import { status, statusEvents, signIn, signUp, signOut, syncNow, pendingCount } from '../sync.js';
 import { spotifyAvailable, spotifyConnected, disconnectSpotify } from '../spotify.js';
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.9';
+export const VERSION = '0.10';
+
+/** Email / password form, shared with the first-launch screen. */
+export const loginFormHtml = () => `<form id="login" onsubmit="return false">
+    <label class="field"><span>メールアドレス</span><input type="email" name="email" autocomplete="email" inputmode="email" autocapitalize="off" autocorrect="off"></label>
+    <label class="field"><span>パスワード（6文字以上）</span><input type="password" name="password" autocomplete="current-password"></label>
+    <div class="btn-row"><button type="button" data-act="signup">新規登録</button><button type="button" class="primary" data-act="signin">ログイン</button></div>
+    <p class="small danger" id="auth-error"></p>
+  </form>`;
+
+/** Logs in (or registers) with the form's values and runs the first sync. Resolves true on success. */
+export async function submitLogin(form, act) {
+  const email = form.email.value.trim();
+  const password = form.password.value;
+  const err = form.querySelector('#auth-error');
+  if (!email || !password) {
+    err.textContent = 'メールアドレスとパスワードを入力してください';
+    return false;
+  }
+  form.querySelectorAll('button').forEach(b => (b.disabled = true));
+  err.textContent = '';
+  try {
+    await (act === 'signup' ? signUp(email, password) : signIn(email, password));
+    return true;
+  } catch (e) {
+    err.textContent = e.message;
+    form.querySelectorAll('button').forEach(b => (b.disabled = false));
+    return false;
+  }
+}
 
 function cloudHtml() {
   if (status.state === 'signedOut') {
     return `<section class="card" id="cloud">
       <h2>クラウド同期</h2>
-      <p class="hint">ログインすると記録と写真がクラウドにも保存され、機種変更しても同じアカウントでログインすれば元どおりになります。初めてログインしたときは、今このiPhoneにある記録がそのままアップロードされます。</p>
-      <form id="login" onsubmit="return false">
-        <label class="field"><span>メールアドレス</span><input type="email" name="email" autocomplete="email" inputmode="email" autocapitalize="off" autocorrect="off"></label>
-        <label class="field"><span>パスワード（6文字以上）</span><input type="password" name="password" autocomplete="current-password"></label>
-        <div class="btn-row"><button type="button" data-act="signup">新規登録</button><button type="button" class="primary" data-act="signin">ログイン</button></div>
-        <p class="small danger" id="auth-error"></p>
-      </form>
+      <p class="hint">ログインすると記録と写真がクラウドにも保存され、機種変更しても同じアカウントでログインすれば元どおりになります。初めてログインしたときは、今このiPhoneにある記録がそのままアップロードされます（クラウドにも同じアーティスト・曲・会場があれば、自動で1つにまとめます）。</p>
+      ${loginFormHtml()}
     </section>`;
   }
   const label = { idle: '同期済み', syncing: '同期中…', offline: 'オフライン（つながったら自動で同期します）', error: '同期できませんでした' }[status.state] || '';
+  const pending = status.state === 'syncing' ? 0 : pendingCount();
   return `<section class="card" id="cloud">
     <h2>クラウド同期</h2>
     <p><b>${esc(status.email)}</b> でログイン中</p>
     <p class="small ${status.state === 'error' ? 'danger' : 'muted'}">${label}${status.lastSync ? ` · 最終同期 ${new Date(status.lastSync).toLocaleString('ja-JP')}` : ''}${status.error ? `<br>${esc(status.error)}` : ''}</p>
+    ${pending ? `<p class="small danger">まだクラウドに保存されていない変更が ${pending}件 あります</p>` : ''}
     <div class="btn-row"><button type="button" data-act="sync">今すぐ同期</button><button type="button" class="txt" data-act="signout">ログアウト</button></div>
-    <p class="hint">記録や編集をすると、数秒後に自動で同期されます。</p>
+    <p class="hint">記録や編集をすると、数秒後に自動で同期されます。ほかの端末の変更は、アプリを開いたときに取り込みます。</p>
   </section>`;
 }
 
@@ -113,32 +139,14 @@ export function render(view) {
   };
   statusEvents.addEventListener('change', redrawCloud);
 
-  async function auth(act) {
-    const form = view.querySelector('#login');
-    const email = form.email.value.trim();
-    const password = form.password.value;
-    const err = form.querySelector('#auth-error');
-    if (!email || !password) return (err.textContent = 'メールアドレスとパスワードを入力してください');
-    form.querySelectorAll('button').forEach(b => (b.disabled = true));
-    err.textContent = '';
-    try {
-      await (act === 'signup' ? signUp(email, password) : signIn(email, password));
-      toast(act === 'signup' ? '登録しました。同期を始めます' : 'ログインしました');
-      nav.rerender();
-    } catch (e) {
-      err.textContent = e.message;
-      form.querySelectorAll('button').forEach(b => (b.disabled = false));
-    }
-  }
-
   view.addEventListener('click', async e => {
     const act = e.target.closest('[data-act]')?.dataset.act;
-    if (act === 'signin' || act === 'signup') await auth(act);
-    if (act === 'sync') syncNow();
-    if (act === 'signout' && confirm('ログアウトしますか？\n（このiPhoneの記録はそのまま残ります）')) {
-      await signOut();
+    if ((act === 'signin' || act === 'signup') && (await submitLogin(view.querySelector('#login'), act))) {
+      toast(act === 'signup' ? '登録しました' : 'ログインしました');
       nav.rerender();
     }
+    if (act === 'sync') syncNow();
+    if (act === 'signout') await logout();
     if (act === 'spotify-off') {
       disconnectSpotify();
       nav.rerender();
@@ -166,6 +174,18 @@ export function render(view) {
   });
 
   return () => statusEvents.removeEventListener('change', redrawCloud);
+}
+
+// Unsaved changes stay on this phone and go up the next time the same account logs in.
+async function logout() {
+  if (pendingCount()) await syncNow();
+  const n = pendingCount();
+  const msg = n
+    ? `まだクラウドに保存されていない変更が${n}件あります。\nログアウトしても記録はこのiPhoneに残り、次に同じアカウントでログインしたときに保存されます。\nログアウトしますか？`
+    : 'ログアウトしますか？\n（このiPhoneの記録はそのまま残ります）';
+  if (!confirm(msg)) return;
+  await signOut();
+  nav.rerender();
 }
 
 async function exportData() {

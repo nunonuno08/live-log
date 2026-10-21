@@ -1,7 +1,7 @@
 // Serves the app from cache first (venues often have poor signal) and refreshes
 // the cache in the background, so updates appear on the next launch.
 // Jacket / artist images from iTunes and Deezer are kept in a separate cache.
-const CACHE = 'livelog-v14';
+const CACHE = 'livelog-v15';
 const IMG_CACHE = 'livelog-img-v1';
 const IMG_HOSTS = /(^|\.)mzstatic\.com$|(^|\.)dzcdn\.net$/;
 const ASSETS = [
@@ -30,6 +30,7 @@ const ASSETS = [
   'js/views/stats.js',
   'js/views/detail.js',
   'js/views/settings.js',
+  'js/views/welcome.js',
   'icons/icon-180.png',
   'icons/icon-192.png',
   'icons/icon-512.png',

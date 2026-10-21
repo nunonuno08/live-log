@@ -133,6 +133,17 @@ header.top.on-hero { position: absolute; left: 0; right: 0; margin: 0; backgroun
 .row2.tight { margin: 12px 0 6px; }
 .hint { font-size: 12px; color: var(--muted); margin: 8px 0; line-height: 1.7; }
 .banner { display: block; background: var(--accent-weak); color: var(--text); padding: 11px 14px; border-radius: 12px; font-size: 13px; margin: 6px 0 10px; }
+#sync-notice:not(.warn) { background: var(--surface2); color: var(--muted); }
+.banner.warn { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.banner.warn b { color: var(--danger); }
+
+/* First launch on a phone with no records. */
+.welcome { max-width: 420px; margin: 0 auto; padding: calc(48px + var(--safe-t)) 0 24px; text-align: center; }
+.welcome-icon { width: 76px; height: 76px; border-radius: 18px; box-shadow: var(--shadow); }
+.welcome h1 { font-size: 26px; font-weight: 800; margin: 14px 0 6px; }
+.welcome .hint { margin: 0 8px 18px; }
+.welcome .card { text-align: left; }
+.welcome > .txt { margin-top: 8px; color: var(--muted); }
 .list-head { display: flex; gap: 8px; align-items: center; margin: 18px 0 12px; }
 .list-head .grow { flex: 1; }
 .list-head > span { flex: 1; }
