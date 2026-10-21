@@ -1,10 +1,11 @@
-# Supabase pauses free projects after 7 days without activity, and lives can be a month
-# apart. This pings the database every 3 days so it stays awake.
+# Supabase pauses free projects after 7 days without "sufficient" database activity, and lives
+# can be a month apart. A ping every 3 days was not enough (paused in Oct 2026); Supabase's
+# guideline is a few requests each day, so this runs 4 times a day.
 name: Keep Supabase awake
 
 on:
   schedule:
-    - cron: "17 3 */3 * *" # every 3 days, 12:17 JST
+    - cron: "17 */6 * * *" # every 6 hours
   workflow_dispatch:
 
 permissions:
@@ -16,7 +17,7 @@ jobs:
     steps:
       - name: Ping Supabase
         run: |
-          curl -fsS -X POST "https://orytpvfmcganvnyyruye.supabase.co/rest/v1/rpc/ping" \
+          curl -fsS --retry 3 --retry-delay 30 -X POST "https://orytpvfmcganvnyyruye.supabase.co/rest/v1/rpc/ping" \
             -H "apikey: sb_publishable_fRfiUN0oxeYd57eNKi1pxQ_kmoYt9j-" \
             -H "Content-Type: application/json" -d '{}'
       # GitHub stops scheduled jobs in repositories without activity for 60 days;

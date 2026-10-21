@@ -44,7 +44,9 @@
   publishable key は `js/sync.js` に記載。テーブル定義は `supabase/schema.sql`（実行済み）。
   Email ログイン、Confirm email はオフ。Secret/service_role キーは**絶対に使わない・受け取らない**。
 - Spotify: Client ID は `js/spotify.js`。Redirect URI は `https://nunonuno08.github.io/live-log/`。
-- 休止対策: `.github/workflows/keepalive.yml` が3日ごとに Supabase の `rpc/ping` を呼ぶ（無料プランは7日無アクセスで停止するため）。
+- 休止対策: `.github/workflows/keepalive.yml` が6時間ごと（1日4回）に Supabase の `rpc/ping` を呼ぶ（無料プランは7日間「十分な利用」がないと停止するため）。
+  2026年10月、3日ごとの ping では足りずに一時停止された（住所が DNS から消え、ログイン・同期が不能に）。
+  停止したら、ユーザーが Supabase ダッシュボード（GitHub アカウント nunonuno08 でログイン）で **Resume project** を押す（無料。Upgrade to Pro は押さない）。データは消えない。
 
 ## ファイル構成
 
