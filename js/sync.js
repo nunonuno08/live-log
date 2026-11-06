@@ -81,6 +81,9 @@ const MESSAGES = [
   [/already registered|already been registered/i, 'このメールアドレスはすでに登録されています。「ログイン」してください'],
   [/password should be at least|weak password/i, 'パスワードは6文字以上にしてください'],
   [/signups not allowed|signup is disabled/i, '現在、新しい登録は受け付けていません'],
+  // Sign-ups are limited to invited addresses (supabase/allowlist.sql); the refusal arrives as
+  // a generic database error.
+  [/not invited|database error saving new user/i, '招待されていないメールアドレスです。招待してくれた人に、このメールアドレスを伝えてください'],
   [/invalid email|unable to validate email/i, 'メールアドレスの形式が正しくありません'],
   [/rate limit/i, '短時間に何度も試したため、しばらく待ってからもう一度お試しください'],
   // Safari says "Load failed". Online but unreachable usually means the server is paused.

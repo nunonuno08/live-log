@@ -6,7 +6,7 @@ import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 import { exportShareFile, importShareFile } from '../transfer.js';
 
-export const VERSION = '0.12';
+export const VERSION = '0.12.1';
 
 // Hidden tools for sharing lives with a friend; opened by tapping the version 5 times and
 // kept open until the app is closed.

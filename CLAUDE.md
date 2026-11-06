@@ -5,7 +5,7 @@
 
 - 公開URL: https://nunonuno08.github.io/live-log/
 - リポジトリ: https://github.com/nunonuno08/live-log （main に push すると GitHub Pages に自動反映）
-- 現在のバージョン: v0.12（`js/views/settings.js` の `VERSION`）
+- 現在のバージョン: v0.12.1（`js/views/settings.js` の `VERSION`）
 
 ## ユーザーとの約束・好み（必ず守る）
 
@@ -100,8 +100,10 @@
 ## 友達に使ってもらうとき（2026年11月に確認）
 
 - データは本人しか見られない（RLS・写真は本人フォルダ）。未ログインで records は 401、写真一覧は空を確認済み。
-- Supabase の**新規登録は停止中**（`disable_signup=true`）。友達が登録するときだけユーザーが
-  Supabase の Authentication 設定で「新規登録を許可」→ 友達がアプリの「新規登録」→ 止め直す、の手順にする。
+- 登録できるのは**招待したメールアドレスだけ**（v0.12.1〜。`supabase/allowlist.sql` を SQL Editor で実行してもらう）。
+  `public.signup_allowlist` に無いアドレスは `auth.users` への追加をトリガーで拒否 → アプリは「招待されていないメールアドレスです」と表示。
+  これで Supabase の「Allow new users to sign up」は**オンのままでよい**（以前はオン/オフを切り替える運用だった）。
+  招待は Table Editor → signup_allowlist → Insert row でメールアドレスを1行追加。既存アカウントには影響しない。
 - パスワード再設定の機能はない（無料の組み込みメールはチームメンバー宛てにしか送れない）。友達にはパスワードを控えてもらう。
 - Spotify は開発モードのため、友達の Spotify メールアドレスを Developer Dashboard の User Management に追加しないと使えない（最大5人）。
 - リポジトリは公開（GitHub Pages の無料条件）。秘密の鍵は置いていないので問題なし。非公開化は有料なので提案しない。
