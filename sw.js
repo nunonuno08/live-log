@@ -1,7 +1,7 @@
 // Serves the app from cache first (venues often have poor signal) and refreshes
 // the cache in the background, so updates appear on the next launch.
 // Jacket / artist images from iTunes and Deezer are kept in a separate cache.
-const CACHE = 'livelog-v17';
+const CACHE = 'livelog-v18';
 const IMG_CACHE = 'livelog-img-v1';
 const IMG_HOSTS = /(^|\.)mzstatic\.com$|(^|\.)dzcdn\.net$/;
 const ASSETS = [
@@ -36,8 +36,11 @@ const ASSETS = [
   'icons/icon-512.png',
 ];
 
+// GitHub Pages lets browsers reuse files for 10 minutes, so a plain fetch right after an
+// update could store the old files again. 'reload' / 'no-cache' always ask the server
+// (an unchanged file costs only a short "not modified" reply).
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(url => new Request(url, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -72,7 +75,8 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     caches.open(CACHE).then(async cache => {
       const cached = await cache.match(req, { ignoreSearch: true });
-      const network = fetch(req)
+      // By URL: a page navigation request can't be re-sent with other options.
+      const network = fetch(req.url, { cache: 'no-cache' })
         .then(res => {
           if (res.ok) cache.put(req, res.clone());
           return res;

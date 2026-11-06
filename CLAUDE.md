@@ -5,7 +5,7 @@
 
 - 公開URL: https://nunonuno08.github.io/live-log/
 - リポジトリ: https://github.com/nunonuno08/live-log （main に push すると GitHub Pages に自動反映）
-- 現在のバージョン: v0.11.1（`js/views/settings.js` の `VERSION`）
+- 現在のバージョン: v0.11.2（`js/views/settings.js` の `VERSION`）
 
 ## ユーザーとの約束・好み（必ず守る）
 
@@ -132,7 +132,9 @@
    確認用のテストデータは最後に必ず削除する（IndexedDB と localStorage を消す）。
 2. 変更したら `sw.js` の `CACHE` 番号と `settings.js` の `VERSION` を上げる。
 3. コミット（日本語の要約＋`Co-Authored-By` 行）→ `git push origin main`。1〜2分で公開URLに反映。
-4. iPhone 側はアプリを1〜2回開き直すと新しい版になる。
+4. iPhone 側はアプリを開き直すと新しい版になる（設定画面の一番下で版を確認できる）。
+   GitHub Pages はファイルを10分間使い回させるため、`sw.js` は新しい版を取るとき必ずサーバーに問い合わせる（`cache: 'reload'` / `'no-cache'`）。
+   新しい版が入ると `app.js` が1回だけ自動で再読み込みする（入力中・シート表示中は除く）。v0.11.2 より前はこれがなく、更新が遅れることがあった。
 - 参考用スクショ（`IMG_*.png`）は `.gitignore` 済み。公開しない。
 
 ## 既知の制約・注意

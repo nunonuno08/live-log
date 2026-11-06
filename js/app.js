@@ -200,6 +200,16 @@ document.addEventListener('click', e => {
   route();
   cleanupOrphanPhotos(edit.draftPhotoIds()).catch(() => {});
   if ('serviceWorker' in navigator && location.hostname !== 'localhost') {
+    // A new version has just taken over: reload once so it shows right away instead of on
+    // the next launch (not on the very first visit, and never under an open form or sheet).
+    const updating = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      const busy = /^#\/(new|edit)/.test(location.hash) || document.body.classList.contains('modal-open');
+      if (!updating || reloaded || busy) return;
+      reloaded = true;
+      location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 })();
