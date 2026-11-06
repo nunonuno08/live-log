@@ -2,7 +2,7 @@
 // Playlists use the Web API with the PKCE login flow (no secret needed in the app). Spotify
 // only lets Development Mode apps work while the owner has Premium, for up to 5 users.
 import { state, liveTitle, artistName, venueName } from './store.js';
-import { fmtDate, baseTitle, stripRomaji, matchKey } from './util.js';
+import { fmtDate, baseTitle, stripRomaji, matchKey, songKey, similarity } from './util.js';
 
 // Client ID of the app registered at developer.spotify.com (public; not a secret).
 const CLIENT_ID = 'b153e8300f014ee7a45e22cf3c67d8ae';
@@ -101,30 +101,69 @@ async function api(path, options = {}) {
 
 /* ---------- playlist ---------- */
 
-async function findTrack(title, artist) {
-  const plain = stripRomaji(baseTitle(title));
-  const want = matchKey(artist);
-  for (const q of [`track:${plain} artist:${artist}`, `${plain} ${artist}`]) {
-    const j = await api(`/search?type=track&limit=5&market=JP&q=${encodeURIComponent(q)}`);
-    const items = j.tracks?.items || [];
-    const hit = items.find(t => t.artists.some(a => matchKey(a.name) === want)) || (q.startsWith('track:') ? items[0] : null);
-    if (hit) return hit.uri;
-  }
-  return null;
+// Spotify sometimes spells a name a little differently ("King Gnu" / "KingGnu"), so one
+// containing the other counts as the same artist.
+function sameArtist(a, b) {
+  const x = matchKey(a);
+  const y = matchKey(b);
+  return x === y || (x.length >= 2 && y.length >= 2 && (x.includes(y) || y.includes(x)));
 }
 
-/** Creates a private playlist of the live's setlist. Resolves { url, missing: [titles] }. */
-export async function createPlaylist(live, onProgress) {
+// "Balmy Life - 2023 Remaster" is still "Balmy Life".
+function sameTitle(spotifyName, title) {
+  const a = songKey(spotifyName);
+  const b = songKey(title);
+  return a === b || (b.length >= 4 && a.startsWith(b)) || similarity(a, b) >= 0.8;
+}
+
+/**
+ * Spotify tracks that may be `song`, best first. `ok` means both the artist and the title
+ * match; results matching neither are dropped, so a song that isn't on Spotify finds nothing
+ * instead of some other artist's track.
+ */
+async function searchSong(song) {
+  const title = stripRomaji(baseTitle(song.title));
+  const artist = artistName(song.artistId);
+  const found = new Map();
+  for (const q of [`track:${title} artist:${artist}`, `${title} ${artist}`]) {
+    const j = await api(`/search?type=track&limit=6&market=JP&q=${encodeURIComponent(q)}`);
+    for (const t of j.tracks?.items || []) {
+      if (found.has(t.uri)) continue;
+      const artistOk = t.artists.some(a => sameArtist(a.name, artist));
+      const titleOk = sameTitle(t.name, song.title);
+      found.set(t.uri, {
+        uri: t.uri,
+        name: t.name,
+        artists: t.artists.map(a => a.name).join(', '),
+        album: t.album?.name || '',
+        image: t.album?.images?.at(-1)?.url || '',
+        ok: artistOk && titleOk,
+        rank: (artistOk ? 2 : 0) + (titleOk ? 1 : 0),
+      });
+    }
+    if ([...found.values()].some(c => c.ok)) break;
+  }
+  return [...found.values()].filter(c => c.rank > 0).sort((a, b) => b.rank - a.rank).slice(0, 6);
+}
+
+/**
+ * Searches Spotify for each song of the setlist so the user can check the matches before
+ * anything is created. Rows: { song, candidates, pick (index, -1 = none), on }.
+ */
+export async function findSetlistTracks(live, onProgress) {
   const songs = (live.setlist || []).filter(it => it.kind === 'song' && state.songs.has(it.songId)).map(it => state.songs.get(it.songId));
-  const uris = [];
-  const missing = [];
+  const rows = [];
   for (const [i, song] of songs.entries()) {
     onProgress?.(`曲を探しています… ${i + 1}/${songs.length}`);
-    const uri = await findTrack(song.title, artistName(song.artistId));
-    if (uri) uris.push(uri);
-    else missing.push(song.title);
+    const candidates = await searchSong(song);
+    // An unsure match starts unticked: a missing song is better than a wrong one.
+    rows.push({ song, candidates, pick: candidates.length ? 0 : -1, on: !!candidates[0]?.ok });
   }
-  onProgress?.('プレイリストを作成中…');
+  return rows;
+}
+
+/** Creates a private playlist of the live with the given tracks. Resolves its URL. */
+export async function createPlaylist(live, uris) {
   const venue = venueName(live.venueId);
   const playlist = await api('/me/playlists', {
     method: 'POST',
@@ -137,5 +176,5 @@ export async function createPlaylist(live, onProgress) {
   for (let i = 0; i < uris.length; i += 100) {
     await api(`/playlists/${playlist.id}/items`, { method: 'POST', body: JSON.stringify({ uris: uris.slice(i, i + 100) }) });
   }
-  return { url: playlist.external_urls?.spotify, missing };
+  return playlist.external_urls?.spotify;
 }

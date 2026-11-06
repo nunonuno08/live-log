@@ -438,7 +438,9 @@ export function render(view, id, params) {
     return all;
   }
 
-  // fromPhoto: lines that match no known song are likely misreads, so they start unchecked.
+  // fromPhoto: a line that matches no known song may be a misread, or a song that isn't on
+  // streaming services. Every line starts ticked (the user wanted the latter kept); the note
+  // under the line says to untick misreads.
   async function review(lines, title, { fromPhoto = false } = {}) {
     if (!lines.length) return toast('曲名が見つかりませんでした');
     const all = await allCandidates();
@@ -448,7 +450,7 @@ export function render(view, id, params) {
       const ok = candidate && score >= 0.55;
       return {
         kind: 'song',
-        on: ok || !fromPhoto || all.length === 0,
+        on: true,
         raw: line.raw,
         title: ok ? candidate.title : line.raw,
         artistId: ok ? candidate.artistId : activeArtist,
@@ -474,7 +476,7 @@ export function render(view, id, params) {
     // so Japanese input isn't interrupted).
     const extraHtml = (r, i) =>
       `${r.state === 'fixed' ? `<small>読み取り: ${esc(r.raw)}</small>` : ''}
-      ${r.state === 'new' ? `<small class="warn">${fromPhoto ? '一覧にない曲（読み間違いかも）' : '一覧にない曲（新しく登録されます）'}</small>` : ''}
+      ${r.state === 'new' ? `<small class="warn">${fromPhoto ? '一覧にない曲（サブスクにない曲か、読み間違いかも）' : '一覧にない曲（新しく登録されます）'}</small>` : ''}
       ${
         r.hints.length
           ? `<div class="rv-hints"><span>${r.state === 'new' ? 'もしかして' : '候補'}</span>${r.hints
@@ -492,7 +494,7 @@ export function render(view, id, params) {
     const picked = await openSheet({
       title,
       tall: true,
-      html: `<p class="hint">チェックを外した行は追加されません。曲名はタップして直せます。</p>
+      html: `<p class="hint">チェックを外した行は追加されません。曲名はタップして直せます。${fromPhoto ? '<br>曲名ではない行（読み間違い）はチェックを外してください。' : ''}</p>
         <div class="rv-list">${rows.map(rowHtml).join('')}</div>
         ${hasSongs ? `<div class="chips mode"><label class="chip"><input type="radio" name="mode" value="append" checked> 後ろに追加</label><label class="chip"><input type="radio" name="mode" value="replace"> 置き換える</label></div>` : ''}
         <button type="button" class="wide primary" data-ok>追加する</button>`,

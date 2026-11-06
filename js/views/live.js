@@ -1,7 +1,7 @@
 import { state, deleteLive, artistName, liveTitle, isPast, playCounts, venueName, hydratePhotos, photoUrl } from '../store.js';
 import { esc, fmtDate, yen, toast, shareOrDownload } from '../util.js';
 import { avatar, songArt, notFound, SPOTIFY_ICON } from '../components.js';
-import { spotifySearchUrl, spotifyAvailable, spotifyConnected, connectSpotify, createPlaylist } from '../spotify.js';
+import { spotifySearchUrl, spotifyAvailable, spotifyConnected, connectSpotify, findSetlistTracks, createPlaylist } from '../spotify.js';
 import { liveCard } from '../share.js';
 import { openSheet } from '../ui.js';
 import { goBack } from '../nav.js';
@@ -133,27 +133,100 @@ async function playlist(l) {
   }
   let setStatus = () => {};
   let closeProgress = () => {};
-  openSheet({
-    title: 'Spotify',
-    html: '<p class="center" id="sp-status">準備中…</p>',
-    onMount(sheet, close) {
-      setStatus = msg => (sheet.querySelector('#sp-status').textContent = msg);
-      closeProgress = close;
-    },
-  });
+  const progress = msg =>
+    openSheet({
+      title: 'Spotify',
+      html: `<p class="center" id="sp-status">${esc(msg)}</p>`,
+      onMount(sheet, close) {
+        setStatus = text => (sheet.querySelector('#sp-status').textContent = text);
+        closeProgress = close;
+      },
+    });
+  progress('準備中…');
   try {
-    const { url, missing } = await createPlaylist(l, msg => setStatus(msg));
+    const rows = await findSetlistTracks(l, msg => setStatus(msg));
     closeProgress();
+    // Nothing is created until the user has checked what Spotify found.
+    const uris = await confirmTracks(rows);
+    if (!uris) return;
+    progress('プレイリストを作成中…');
+    const url = await createPlaylist(l, uris);
+    closeProgress();
+    const left = rows.filter(r => !r.on || r.pick < 0).map(r => r.song.title);
     await openSheet({
       title: 'プレイリストを作成しました',
       html: `<p>Spotify の「ライブラリ」に非公開のプレイリストとして追加しました。</p>
-        ${missing.length ? `<p class="hint">見つからなかった曲: ${missing.map(esc).join('、')}</p>` : ''}
+        ${left.length ? `<p class="hint">入れなかった曲: ${left.map(esc).join('、')}</p>` : ''}
         <a class="btn wide spotify-btn" href="${esc(url || 'https://open.spotify.com/')}" target="_blank" rel="noopener">${SPOTIFY_ICON}Spotify で開く</a>`,
     });
   } catch (err) {
     closeProgress();
     toast(err.message);
   }
+}
+
+/** Shows each setlist song next to what Spotify found. Resolves the track URIs to use, or nothing if closed. */
+function confirmTracks(rows) {
+  const chosen = r => (r.on && r.pick >= 0 ? r.candidates[r.pick] : null);
+  const trackHtml = c =>
+    `${c.image ? `<img class="sp-art" src="${esc(c.image)}" alt="" loading="lazy">` : '<span class="sp-art none">♪</span>'}
+    <span class="sp-track"><b>${esc(c.name)}</b><small>${esc(c.artists)}${c.album ? ` · ${esc(c.album)}` : ''}</small></span>`;
+  const rowHtml = (r, i) => {
+    const c = r.candidates[r.pick];
+    const others = r.candidates.length - 1;
+    return `<div class="sp-row" data-row="${i}">
+      <input type="checkbox" data-on="${i}" ${r.on ? 'checked' : ''} ${c ? '' : 'disabled'} aria-label="${esc(r.song.title)}をプレイリストに入れる">
+      <div class="sp-main">
+        <div class="sp-want"><span>${i + 1}</span>${esc(r.song.title)}</div>
+        ${c ? `<div class="sp-got">${trackHtml(c)}</div>` : ''}
+        ${c && !c.ok ? '<small class="warn">アーティスト名か曲名が違います。合っているか確かめてください</small>' : ''}
+        ${c ? '' : '<small class="warn">Spotify で見つかりませんでした（入りません）</small>'}
+        ${others > 0 ? `<button type="button" class="txt small sp-more" data-more="${i}">ほかの候補（${others}）</button>
+          <div class="sp-alts" hidden>${r.candidates
+            .map((a, j) => (j === r.pick ? '' : `<button type="button" class="sp-alt" data-alt="${i}:${j}">${trackHtml(a)}</button>`))
+            .join('')}</div>` : ''}
+      </div>
+    </div>`;
+  };
+  const okLabel = () => `${rows.filter(chosen).length}曲でプレイリストを作る`;
+  return openSheet({
+    title: 'Spotify の検索結果',
+    tall: true,
+    html: `<p class="hint">上がセトリの曲名、その下が Spotify で見つかった曲です。違う曲はチェックを外すか、「ほかの候補」から選び直してください。</p>
+      <div class="sp-list">${rows.map(rowHtml).join('')}</div>
+      <button type="button" class="wide spotify-btn" data-ok>${SPOTIFY_ICON}<span>${okLabel()}</span></button>`,
+    onMount(sheet, close) {
+      const ok = sheet.querySelector('[data-ok]');
+      const refresh = () => {
+        ok.querySelector('span').textContent = okLabel();
+        ok.disabled = !rows.some(chosen);
+      };
+      refresh();
+      sheet.addEventListener('change', e => {
+        if (e.target.dataset.on == null) return;
+        rows[Number(e.target.dataset.on)].on = e.target.checked;
+        refresh();
+      });
+      sheet.addEventListener('click', e => {
+        const more = e.target.closest('[data-more]');
+        if (more) {
+          const alts = more.nextElementSibling;
+          alts.hidden = !alts.hidden;
+          return;
+        }
+        // Choosing another candidate means the user checked it, so it is ticked.
+        const alt = e.target.closest('[data-alt]');
+        if (alt) {
+          const [i, j] = alt.dataset.alt.split(':').map(Number);
+          Object.assign(rows[i], { pick: j, on: true });
+          sheet.querySelector(`[data-row="${i}"]`).outerHTML = rowHtml(rows[i], i);
+          refresh();
+          return;
+        }
+        if (e.target.closest('[data-ok]')) close(rows.map(chosen).filter(Boolean).map(c => c.uri));
+      });
+    },
+  });
 }
 
 async function shareSheet(l) {
