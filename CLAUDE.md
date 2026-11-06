@@ -5,7 +5,7 @@
 
 - 公開URL: https://nunonuno08.github.io/live-log/
 - リポジトリ: https://github.com/nunonuno08/live-log （main に push すると GitHub Pages に自動反映）
-- 現在のバージョン: v0.11.3（`js/views/settings.js` の `VERSION`）
+- 現在のバージョン: v0.11.4（`js/views/settings.js` の `VERSION`）
 
 ## ユーザーとの約束・好み（必ず守る）
 
@@ -25,6 +25,8 @@
 - 不要とされた項目: 評価(★)、お気に入り、同行者、URL、カレンダー追加、MC/SE/VCR（セトリの区切りは**アンコールのみ**）。
 - 写真は**1ライブ1枚**（クラウド容量節約のため）。
 - Spotify プレイリストの説明文にアプリ名は入れない（「◯◯ のセットリスト」だけ）。
+- Spotify プレイリスト名は「`LIVE 2026.09.23 『公演名』`」（ユーザーが決定。『』は公演名の中の「」と二重にならないため）。
+  フォルダへの保存は Spotify の API に機能がないためできない（パソコン版 Spotify で手動移動）。
 
 ## 技術構成
 

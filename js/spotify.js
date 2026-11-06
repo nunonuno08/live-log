@@ -177,7 +177,9 @@ export async function createPlaylist(live, uris) {
   const playlist = await api('/me/playlists', {
     method: 'POST',
     body: JSON.stringify({
-      name: `${fmtDate(live.date, false)} ${liveTitle(live)}`,
+      // "LIVE 2026.09.23 『公演名』": the prefix keeps them together in the library; 『』 stays
+      // readable even when the title itself contains 「」.
+      name: `LIVE ${fmtDate(live.date, false)} 『${liveTitle(live)}』`,
       description: `${venue ? `${venue} の` : ''}セットリスト`,
       public: false,
     }),
