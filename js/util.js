@@ -68,6 +68,13 @@ export function baseTitle(title) {
   return t.trim() || String(title ?? '').trim();
 }
 
+/** The edition tags baseTitle drops ("2025 mix", "Live", "Remastered"…), for telling versions of a song apart. */
+export function versionTags(title) {
+  const t = String(title ?? '').normalize('NFKC');
+  const parts = [...(t.match(BRACKETED) || []), ...(t.match(/\s+[-–—~〜]\s+[^-–—~〜]*$/) || [])];
+  return matchKey(parts.filter(p => VERSION_RE.test(p)).join(' '));
+}
+
 const HAS_JAPANESE = /[぀-ヿ㐀-鿿]/;
 
 // For matching only (the displayed title keeps it): a Japanese title without a trailing

@@ -564,21 +564,28 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .spotify-btn { gap: 8px; font-weight: 800; background: #1ed760; color: #000; }
 /* Checking Spotify's matches before a playlist is made. */
 .sp-list { display: flex; flex-direction: column; margin-bottom: 12px; }
-.sp-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
-.sp-row > input[type="checkbox"] { margin-top: 2px; }
+.sp-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.sp-row > input[type="checkbox"] { margin-top: 1px; }
 .sp-main { flex: 1; min-width: 0; }
-.sp-want { font-weight: 700; display: flex; gap: 8px; }
+.sp-want { font-size: 16px; font-weight: 800; display: flex; gap: 8px; line-height: 1.35; }
 .sp-want span { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 18px; }
-.sp-got, .sp-alt { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }
+/* Spotify's match: a tinted box under the setlist title (green = matches, yellow = check). */
+.sp-got {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 10px; min-width: 0; border-radius: 12px;
+  background: color-mix(in srgb, #1ed760 13%, var(--surface)); border: 1px solid color-mix(in srgb, #1ed760 35%, transparent);
+}
+.sp-got.check { background: color-mix(in srgb, var(--gold) 15%, var(--surface)); border-color: color-mix(in srgb, var(--gold) 55%, transparent); }
+.sp-got.none { display: block; background: none; border: 1.5px dashed var(--line); color: var(--muted); font-size: 12px; }
+.sp-got > .sp-icon { width: 18px; height: 18px; margin-left: auto; }
+.sp-alt { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: flex-start; padding: 6px 8px; background: none; border-radius: 10px; }
 .sp-art { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: var(--surface2); }
 .sp-art.none { display: grid; place-items: center; color: var(--muted); font-size: 14px; }
-.sp-track { min-width: 0; display: flex; flex-direction: column; text-align: left; }
-.sp-track b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-track { min-width: 0; display: flex; flex-direction: column; text-align: left; line-height: 1.35; }
+.sp-track b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp-track small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sp-main small.warn { display: block; font-size: 11px; color: var(--gold); margin-top: 4px; }
+.sp-track em { font-style: normal; font-size: 11px; font-weight: 800; color: color-mix(in srgb, var(--gold) 70%, var(--text)); }
 .sp-more { padding: 6px 0; margin-top: 2px; font-size: 12px; color: var(--accent); }
 .sp-alts { display: flex; flex-direction: column; gap: 2px; padding-left: 8px; border-left: 2px solid var(--line); }
-.sp-alt { width: 100%; justify-content: flex-start; padding: 6px 8px; margin-top: 0; background: none; border-radius: 8px; }
 .spotify-btn:disabled { opacity: 0.4; }
 .spotify-btn .sp-icon circle { fill: #000; }
 .spotify-btn .sp-icon path { stroke: #1ed760; }

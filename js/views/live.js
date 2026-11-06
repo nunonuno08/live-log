@@ -168,9 +168,12 @@ async function playlist(l) {
 /** Shows each setlist song next to what Spotify found. Resolves the track URIs to use, or nothing if closed. */
 function confirmTracks(rows) {
   const chosen = r => (r.on && r.pick >= 0 ? r.candidates[r.pick] : null);
+  // What Spotify found sits in its own box (green = matches, yellow = check it) under the
+  // setlist's title, so the two can't be mistaken for each other.
   const trackHtml = c =>
     `${c.image ? `<img class="sp-art" src="${esc(c.image)}" alt="" loading="lazy">` : '<span class="sp-art none">♪</span>'}
-    <span class="sp-track"><b>${esc(c.name)}</b><small>${esc(c.artists)}${c.album ? ` · ${esc(c.album)}` : ''}</small></span>`;
+    <span class="sp-track"><b>${esc(c.name)}</b><small>${esc(c.artists)}${c.album ? ` · ${esc(c.album)}` : ''}</small>
+      ${c.reason ? `<em>${esc(c.reason)}</em>` : ''}</span>`;
   const rowHtml = (r, i) => {
     const c = r.candidates[r.pick];
     const others = r.candidates.length - 1;
@@ -178,9 +181,11 @@ function confirmTracks(rows) {
       <input type="checkbox" data-on="${i}" ${r.on ? 'checked' : ''} ${c ? '' : 'disabled'} aria-label="${esc(r.song.title)}をプレイリストに入れる">
       <div class="sp-main">
         <div class="sp-want"><span>${i + 1}</span>${esc(r.song.title)}</div>
-        ${c ? `<div class="sp-got">${trackHtml(c)}</div>` : ''}
-        ${c && !c.ok ? '<small class="warn">アーティスト名か曲名が違います。合っているか確かめてください</small>' : ''}
-        ${c ? '' : '<small class="warn">Spotify で見つかりませんでした（入りません）</small>'}
+        ${
+          c
+            ? `<div class="sp-got ${c.ok ? '' : 'check'}">${trackHtml(c)}${SPOTIFY_ICON}</div>`
+            : '<div class="sp-got none">Spotify で見つかりませんでした（入りません）</div>'
+        }
         ${others > 0 ? `<button type="button" class="txt small sp-more" data-more="${i}">ほかの候補（${others}）</button>
           <div class="sp-alts" hidden>${r.candidates
             .map((a, j) => (j === r.pick ? '' : `<button type="button" class="sp-alt" data-alt="${i}:${j}">${trackHtml(a)}</button>`))
@@ -192,7 +197,7 @@ function confirmTracks(rows) {
   return openSheet({
     title: 'Spotify の検索結果',
     tall: true,
-    html: `<p class="hint">上がセトリの曲名、その下が Spotify で見つかった曲です。違う曲はチェックを外すか、「ほかの候補」から選び直してください。</p>
+    html: `<p class="hint">セトリの曲名の下の枠が、Spotify で見つかった曲です。<b>黄色の枠</b>は違う曲やバージョンかもしれないので、確かめてからチェックを入れるか、「ほかの候補」から選び直してください。</p>
       <div class="sp-list">${rows.map(rowHtml).join('')}</div>
       <button type="button" class="wide spotify-btn" data-ok>${SPOTIFY_ICON}<span>${okLabel()}</span></button>`,
     onMount(sheet, close) {
