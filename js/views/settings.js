@@ -4,8 +4,23 @@ import { status, statusEvents, signIn, signUp, signOut, syncNow, pendingCount } 
 import { spotifyAvailable, spotifyConnected, disconnectSpotify } from '../spotify.js';
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
+import { exportShareFile, importShareFile } from '../transfer.js';
 
-export const VERSION = '0.11.4';
+export const VERSION = '0.12';
+
+// Hidden tools for sharing lives with a friend; opened by tapping the version 5 times and
+// kept open until the app is closed.
+let toolsOpen = false;
+let taps = 0;
+let lastTap = 0;
+
+const toolsHtml = () => `<section class="card" id="tools">
+    <h2>共有ツール</h2>
+    <p class="hint">ライブの記録を友達と分け合えます。書き出したファイルには、メモと写真は入りません。</p>
+    <button class="wide" data-act="share-export">ライブを共有用に書き出す</button>
+    <label class="wide btn">ほかの人の記録を取り込む<input type="file" accept=".json,application/json" hidden data-share-import></label>
+    <p class="hint">取り込むときは、ファイルの中から自分も行ったライブを選べます。</p>
+  </section>`;
 
 /** Email / password form, shared with the first-launch screen. */
 export const loginFormHtml = () => `<form id="login" onsubmit="return false">
@@ -125,7 +140,8 @@ export function render(view) {
 
     <section class="card" id="wipe">${wipeHtml()}</section>
 
-    <p class="center muted small">ライブ記録 v${VERSION}</p>`;
+    ${toolsOpen ? toolsHtml() : ''}
+    <p class="center muted small version" data-act="version">ライブ記録 v${VERSION}</p>`;
 
   photoCount().then(n => (view.querySelector('#ph-count').textContent = n));
   navigator.storage?.persisted?.().then(p => !p && navigator.storage.persist?.());
@@ -166,8 +182,34 @@ export function render(view) {
       setTheme(theme);
       view.querySelectorAll('[data-theme-set]').forEach(b => b.classList.toggle('on', b.dataset.themeSet === theme));
     }
+    // Hidden tools: tap the version 5 times in a row.
+    if (act === 'version' && !toolsOpen) {
+      const now = Date.now();
+      taps = now - lastTap < 1500 ? taps + 1 : 1;
+      lastTap = now;
+      if (taps >= 5) {
+        toolsOpen = true;
+        e.target.closest('[data-act]').insertAdjacentHTML('beforebegin', toolsHtml());
+        toast('共有ツールを表示しました');
+      }
+    }
+    if (act === 'share-export') await exportShareFile().catch(err => toast(err.message));
   });
   view.addEventListener('change', async e => {
+    if (e.target.matches('[data-share-import]') && e.target.files[0]) {
+      const file = e.target.files[0];
+      e.target.value = '';
+      try {
+        const n = await importShareFile(file);
+        if (n) {
+          toast(`${n}本のライブを取り込みました`);
+          nav.rerender();
+        }
+      } catch (err) {
+        toast(err.message);
+      }
+      return;
+    }
     if (!e.target.matches('[data-import]') || !e.target.files[0]) return;
     await importData(e.target.files[0]);
     e.target.value = '';
