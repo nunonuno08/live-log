@@ -117,10 +117,11 @@ function similarTitle(spotifyName, title) {
 }
 
 /**
- * Spotify tracks that may be `song`, best first. Only the same artist with exactly the same
- * title and version is `ok` (ticked from the start); anything else carries the `reason` the
- * user should check. Results matching neither artist nor title are dropped, so a song that
- * isn't on Spotify finds nothing instead of some other artist's track.
+ * Spotify tracks that may be `song`, best first. `level`: 'ok' (same artist, title and
+ * version), 'version' (same song in another version, e.g. a 2025 mix; common for some
+ * artists, so it is still ticked) or 'wrong' (different title or artist; unticked), with the
+ * `reason` shown to the user. Results matching neither artist nor title are dropped, so a song
+ * that isn't on Spotify finds nothing instead of some other artist's track.
  */
 async function searchSong(song) {
   const title = stripRomaji(baseTitle(song.title));
@@ -142,13 +143,14 @@ async function searchSong(song) {
         artists: t.artists.map(a => a.name).join(', '),
         album: t.album?.name || '',
         image: t.album?.images?.at(-1)?.url || '',
-        ok: artistOk && sameKey && !otherVersion,
+        level: !artistOk || !sameKey ? 'wrong' : otherVersion ? 'version' : 'ok',
         reason: !artistOk ? 'アーティストが違います' : !sameKey ? '曲名が違います' : otherVersion ? '別バージョンです' : '',
         // The original recording comes before mixes and live versions of the same song.
         rank: (artistOk ? 4 : 0) + (sameKey ? 2 : 0) + (similarTitle(t.name, song.title) ? 1 : 0) + (otherVersion ? 0 : 0.5),
       });
     }
-    if ([...found.values()].some(c => c.ok)) break;
+    // Keep looking when only other versions turned up: the original may be in the next search.
+    if ([...found.values()].some(c => c.level === 'ok')) break;
   }
   return [...found.values()].filter(c => c.rank >= 1).sort((a, b) => b.rank - a.rank).slice(0, 6);
 }
@@ -163,8 +165,8 @@ export async function findSetlistTracks(live, onProgress) {
   for (const [i, song] of songs.entries()) {
     onProgress?.(`曲を探しています… ${i + 1}/${songs.length}`);
     const candidates = await searchSong(song);
-    // An unsure match starts unticked: a missing song is better than a wrong one.
-    rows.push({ song, candidates, pick: candidates.length ? 0 : -1, on: !!candidates[0]?.ok });
+    // A different title or artist starts unticked: a missing song is better than a wrong one.
+    rows.push({ song, candidates, pick: candidates.length ? 0 : -1, on: !!candidates[0] && candidates[0].level !== 'wrong' });
   }
   return rows;
 }

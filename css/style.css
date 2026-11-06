@@ -574,7 +574,8 @@ dl.kv dd { margin: 0; word-break: break-word; }
   display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 10px; min-width: 0; border-radius: 12px;
   background: color-mix(in srgb, #1ed760 13%, var(--surface)); border: 1px solid color-mix(in srgb, #1ed760 35%, transparent);
 }
-.sp-got.check { background: color-mix(in srgb, var(--gold) 15%, var(--surface)); border-color: color-mix(in srgb, var(--gold) 55%, transparent); }
+.sp-got.version { background: color-mix(in srgb, var(--gold) 15%, var(--surface)); border-color: color-mix(in srgb, var(--gold) 55%, transparent); }
+.sp-got.wrong { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
 .sp-got.none { display: block; background: none; border: 1.5px dashed var(--line); color: var(--muted); font-size: 12px; }
 .sp-got > .sp-icon { width: 18px; height: 18px; margin-left: auto; }
 .sp-alt { display: flex; align-items: center; gap: 10px; width: 100%; justify-content: flex-start; padding: 6px 8px; background: none; border-radius: 10px; }
@@ -584,6 +585,7 @@ dl.kv dd { margin: 0; word-break: break-word; }
 .sp-track b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp-track small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sp-track em { font-style: normal; font-size: 11px; font-weight: 800; color: color-mix(in srgb, var(--gold) 70%, var(--text)); }
+.sp-track em.wrong { color: var(--danger); }
 .sp-more { padding: 6px 0; margin-top: 2px; font-size: 12px; color: var(--accent); }
 .sp-alts { display: flex; flex-direction: column; gap: 2px; padding-left: 8px; border-left: 2px solid var(--line); }
 .spotify-btn:disabled { opacity: 0.4; }

@@ -5,7 +5,7 @@ import { spotifyAvailable, spotifyConnected, disconnectSpotify } from '../spotif
 import { BACKUP_KEY } from './home.js';
 import { nav } from '../nav.js';
 
-export const VERSION = '0.11.2';
+export const VERSION = '0.11.3';
 
 /** Email / password form, shared with the first-launch screen. */
 export const loginFormHtml = () => `<form id="login" onsubmit="return false">
