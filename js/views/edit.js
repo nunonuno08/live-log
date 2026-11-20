@@ -6,7 +6,7 @@ import { TYPES, EXPENSE_CATS, avatar, songArt, notFound } from '../components.js
 import { parseLines, bestMatch, readImageTexts, pickLines } from '../setlist.js';
 import { catalogFor, toursFor, searchPlaces, KNOWN_VENUES } from '../music.js';
 import { openSheet, suggest, pickArtist, cropImage } from '../ui.js';
-import { goBack, replace } from '../nav.js';
+import { nav, goBack, replace } from '../nav.js';
 
 // The show usually starts two hours after doors open.
 const SHOW_OFFSET = 120;
@@ -57,10 +57,22 @@ function blankDraft(artistId) {
   return d;
 }
 
+// A draft is only for coming back within a short while (e.g. after copying a setlist in
+// Photos). Anything older is a form left half-done long ago, so start clean instead.
+const DRAFT_TTL = 30 * 60 * 1000;
+
 function readDraft(key) {
   try {
     const s = localStorage.getItem(key);
-    return s ? JSON.parse(s) : null;
+    if (!s) return null;
+    const d = JSON.parse(s);
+    const at = d.savedAt;
+    delete d.savedAt;
+    if (!at || Date.now() - at > DRAFT_TTL) {
+      localStorage.removeItem(key); // its unsaved photos are swept at the next start
+      return null;
+    }
+    return d;
   } catch {
     return null;
   }
@@ -78,8 +90,8 @@ export function render(view, id, params) {
   const key = DRAFT_PREFIX + (id || (source ? `copy:${source.id}` : 'new'));
   const initial = JSON.stringify(existing ? toDraft(existing) : source ? copyDraft() : blankDraft(params.get('artist')));
   let draft = readDraft(key);
-  if (draft) setTimeout(() => toast('編集途中の内容を復元しました'), 300);
-  else {
+  const restored = !!draft;
+  if (!draft) {
     draft = JSON.parse(initial);
     if (source) setTimeout(() => toast('複製しました。日付と座席を入れて保存してください'), 300);
   }
@@ -95,7 +107,7 @@ export function render(view, id, params) {
     try {
       const s = JSON.stringify(draft);
       if (s === initial) localStorage.removeItem(key);
-      else localStorage.setItem(key, s);
+      else localStorage.setItem(key, JSON.stringify({ ...draft, savedAt: Date.now() }));
     } catch {}
   };
   const persist = () => {
@@ -118,6 +130,7 @@ export function render(view, id, params) {
       <h1 class="center">${existing ? 'ライブを編集' : source ? 'ライブを複製' : 'ライブを記録'}</h1>
       <button class="txt primary" data-act="save">保存</button>
     </header>
+    ${restored ? `<div class="banner draft-note"><span>入力途中の内容を戻しました</span><button type="button" class="txt" data-act="discard-draft">${existing ? '元の内容に戻す' : '白紙からやり直す'}</button></div>` : ''}
 
     <section class="card">
       <div class="field"><span>アーティスト</span><div id="ed-artists" class="chips"></div></div>
@@ -588,7 +601,7 @@ export function render(view, id, params) {
       .map(
         (x, i) => `<div class="ex-row">
           <select data-exc="${i}">${EXPENSE_CATS.map(c => `<option ${c === x.category ? 'selected' : ''}>${c}</option>`).join('')}</select>
-          <input data-exa="${i}" type="number" inputmode="numeric" min="0" value="${esc(x.amount)}" placeholder="金額">
+          <input data-exa="${i}" type="number" inputmode="numeric" min="0" value="${esc(x.amount)}" placeholder="金額" autocomplete="off">
           <span class="muted">円</span>
           <button type="button" class="txt" data-exd="${i}" aria-label="削除">✕</button>
         </div>`,
@@ -685,6 +698,14 @@ export function render(view, id, params) {
     goBack(existing ? `#/live/${existing.id}` : source ? `#/live/${source.id}` : draft.artistIds[0] ? `#/artist/${draft.artistIds[0]}` : '#/');
   }
 
+  // Throw away the restored half-done form and open this screen fresh.
+  async function discardDraft() {
+    if (!confirm(existing ? '入力途中の内容を捨てて、保存済みの内容に戻しますか？' : '入力途中の内容を捨てて、白紙からやり直しますか？')) return;
+    for (const pid of draft.addedPhotos || []) await deletePhoto(pid);
+    closeDraft();
+    nav.rerender();
+  }
+
   /* ----- events ----- */
   const onField = e => {
     const t = e.target;
@@ -708,6 +729,7 @@ export function render(view, id, params) {
     const d = el.dataset;
     if (d.act === 'save') save();
     else if (d.act === 'cancel') cancel();
+    else if (d.act === 'discard-draft') discardDraft();
     else if (d.act === 'paste') pasteText();
     else if (d.act === 'encore') {
       draft.setlist.push({ kind: 'en' });

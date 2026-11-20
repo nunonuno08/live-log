@@ -63,6 +63,7 @@ export function render(view, id) {
       .filter(l => (filter === 'all' ? true : filter === 'upcoming' ? !isPast(l) : isPast(l) && l.date.startsWith(filter)))
       .reverse();
     listEl.innerHTML = shown.length ? shown.map(liveRow).join('') : lives.length ? '<div class="empty">該当するライブはありません</div>' : '';
+    hydratePhotos(listEl);
   };
   draw();
   hydratePhotos(view);

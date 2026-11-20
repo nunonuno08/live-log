@@ -33,21 +33,40 @@ export function artistStripe(l) {
   return `linear-gradient(${ids.map((id, i) => `${artistColor(id)} ${i * step}% ${(i + 1) * step}%`).join(', ')})`;
 }
 
-/** A live as a ticket stub. */
+const PIN_ICON =
+  '<svg class="t-pin" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>';
+
+// A fes can have dozens of acts; the card names the first few and counts the rest.
+const CARD_ARTISTS = 3;
+
+/** Artist names, each led by a small round photo. */
+function artistLine(ids, cls) {
+  const shown = ids.slice(0, CARD_ARTISTS);
+  const more = ids.length - shown.length;
+  return `<div class="t-artists ${cls}">${shown
+    .map(id => `<span class="t-ar">${avatar(state.artists.get(id), 'xxs')}<span>${esc(artistName(id))}</span></span>`)
+    .join('')}${more > 0 ? `<span class="t-more">ほか${more}組</span>` : ''}</div>`;
+}
+
+/** A live as a ticket stub: title, then artists, then venue, each on its own line. */
 export function liveRow(l) {
   const [y, m, d] = l.date.split('-');
   let side = '';
   if (l.date === today()) side = '<span class="badge hot">今日</span>';
   else if (!isPast(l)) side = `<span class="badge">あと${daysUntil(l.date)}日</span>`;
-  const artists = l.artistIds.map(artistName).join(' / ');
   const venue = venueName(l.venueId);
-  const sub = [l.title?.trim() ? artists : '', venue].filter(Boolean).join(' · ');
+  const titled = !!l.title?.trim();
   const color = l.artistIds[0] ? artistColor(l.artistIds[0]) : 'var(--muted)';
+  // Without a tour name the artists themselves are the title, so they aren't repeated below.
+  const head =
+    titled || !l.artistIds.length
+      ? `<div class="t-title">${esc(liveTitle(l))}</div>${titled && l.artistIds.length ? artistLine(l.artistIds, '') : ''}`
+      : artistLine(l.artistIds, 'as-title');
   return `<a class="ticket ${isPast(l) ? '' : 'upcoming'}" href="#/live/${l.id}" style="--ac:${color};--stripe:${artistStripe(l)}">
     <div class="t-date"><span class="t-y">${y}</span><b>${+m}.${+d}</b><span class="t-w">${weekday(l.date)}</span></div>
     <div class="t-body">
-      <div class="t-title">${esc(liveTitle(l))}</div>
-      ${sub ? `<div class="t-sub">${esc(sub)}</div>` : ''}
+      ${head}
+      ${venue ? `<div class="t-venue">${PIN_ICON}<span>${esc(venue)}</span></div>` : ''}
       ${side ? `<div class="t-badge">${side}</div>` : ''}
     </div>
     ${l.photoIds?.[0] ? `<img class="t-thumb" data-photo="${l.photoIds[0]}" alt="">` : ''}
