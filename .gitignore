@@ -1,5 +1,9 @@
 # Reference screenshots of other apps (not part of this app)
 /IMG_*.png
 
-# Personal notes (preferences, progress, plans). Not part of the app; never published.
+# Only what the app needs to run is published.
+/CLAUDE.md
 /CLAUDE.local.md
+/supabase/
+/serve.ps1
+/.claude/
